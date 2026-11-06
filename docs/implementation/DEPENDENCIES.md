@@ -97,7 +97,7 @@ RaceMenu 接口通过消息 `0x9E3779B9` 交换，`QueryInterface("Overlay")` / 
 | 安装配置/资源 | `D:/tuanzimouse/mods/SKSE_Menu_Framework/SKSE/Plugins/` | 3.10 | — | 冒烟测试需要完整目录（字体、字符串、主题） |
 | 新源码头文件 | `E:/source/repos/SKSE-Menu-Framework-3-master/resources/SKSEMenuFramework.h` | 源码 3.14 | `03a39ccef309d234b0575e307f741907a18a389dc4a9e398730a1823db8c5153` | 仅核对；不直接作为 3.10 二进制头文件 |
 
-已核对的 3.10 DLL 导出包含 `AddSectionItem`、`AddWindow`、`GetMainWindow`、`GetMenuFrameworkVersion` 等；`GetMenuFrameworkAPIVersion` 不在导出表。源码头文件的 `FullPathAddSectionItem` 不是独立导出，实际仍调用 `AddSectionItem`。S8 只使用 3.10 已验证的导出；S2 依赖检查核对文件版本 `3.10.0.0`；中文菜单还需要在框架 ini 中启用中文字体。
+已核对的 3.10 DLL 导出包含 `AddSectionItem`、`AddWindow`、`GetMainWindow`、`GetMenuFrameworkVersion` 等；`GetMenuFrameworkAPIVersion` 不在导出表。源码头文件的 `FullPathAddSectionItem` 不是独立导出，实际仍调用 `AddSectionItem`。菜单与运行时共用 `Menu::available()` 的所需导出检查，DLL 文件版本仅用于日志，不再要求 `3.10.0.0`；中文菜单还需要在框架 ini 中启用中文字体。
 
 ### 6.1 项目 ESP 的 masters
 

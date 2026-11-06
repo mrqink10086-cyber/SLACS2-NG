@@ -8,6 +8,7 @@ namespace slacs
 	class Menu
 	{
 	public:
+		static bool available();
 		static bool install();
 		static void publish(MenuSnapshot a_snapshot);
 		[[nodiscard]] static MenuSnapshot snapshot();

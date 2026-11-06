@@ -194,12 +194,12 @@ namespace slacs
 		const bool menuDll = ModuleLoaded(L"SKSEMenuFramework.dll");
 		const auto menuVersion = menuDll ? ModuleVersion(L"SKSEMenuFramework.dll") : std::string{};
 		const auto menuStatus = !menuDll ? DependencyStatus::Missing :
-			(menuVersion == "3.10.0.0" ? DependencyStatus::Available :
+			(Menu::available() ? DependencyStatus::Available :
 				DependencyStatus::VersionMismatch);
 		report.checks.push_back({
 			DependencyKind::MenuFramework,
 			menuStatus,
-			"3.10.0.0",
+			"required menu exports",
 			menuVersion,
 		});
 

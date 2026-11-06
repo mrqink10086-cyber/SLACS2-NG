@@ -272,15 +272,9 @@ namespace slacs
 			}
 		}
 
-		void RenderSettingsPage()
+		void RenderSettings()
 		{
-			const auto snapshot = Menu::snapshot();
-			SyncDraft(snapshot);
 			auto& state = ui();
-
-			Text("体液覆盖 / 设置");
-			TextDisabled("所有设置由 C++ 运行时结算；菜单只读取快照并提交动作。修改在“应用”后生效，写盘需显式选择“应用并保存”。");
-			api().separator();
 
 			api().checkbox("启用体液覆盖层", &state.draft.overlaysEnabled);
 
@@ -350,16 +344,12 @@ namespace slacs
 				TextDisabled("修改槽位后必须重新加载或让 RaceMenu 重建 3D，旧槽位不会自动迁移。");
 			}
 
-			RenderSettingsActions(snapshot);
 		}
 
-		void RenderDecayPage()
+		void RenderDecay()
 		{
-			const auto snapshot = Menu::snapshot();
-			SyncDraft(snapshot);
 			auto& state = ui();
 
-			Text("体液覆盖 / 衰减与清洗");
 			TextDisabled("衰减按游戏日历时间结算；睡眠、等待和快速旅行都会推进游戏时间。菜单打开时游戏暂停，主动秒数不增长。");
 			api().separator();
 
@@ -402,7 +392,6 @@ namespace slacs
 			Text("层移除顺序");
 			TextDisabled("沿用 0.7 行为：后添加的层先移除（LIFO）；设置变更裁剪时也先裁剪最新层。");
 
-			RenderSettingsActions(snapshot);
 		}
 
 		const TrackedActorRow* FindActor(const MenuSnapshot& a_snapshot, ActorId a_actor)
@@ -415,15 +404,10 @@ namespace slacs
 			return nullptr;
 		}
 
-		void RenderMaintenancePage()
+		void RenderMaintenance(const MenuSnapshot& snapshot)
 		{
-			const auto snapshot = Menu::snapshot();
-			SyncDraft(snapshot);
 			auto& state = ui();
 
-			Text("体液覆盖 / 状态与维护");
-			TextDisabled("角色列表、层数与诊断来自运行时发布的只读快照；按钮动作携带当前会话 epoch。");
-			api().separator();
 
 			if (snapshot.actors.empty()) {
 				TextDisabled("当前会话尚未跟踪任何角色。");
@@ -572,41 +556,30 @@ namespace slacs
 				api().endDisabled();
 			}
 
-			RenderSettingsActions(snapshot);
 		}
 
-		void __stdcall renderSettingsPage()
+		void __stdcall renderMenu()
 		{
 			try {
-				RenderSettingsPage();
+				const auto snapshot = Menu::snapshot();
+				SyncDraft(snapshot);
+				Text("体液覆盖");
+				TextWrapped("设置跨存档共用。点击“应用并保存”后持久保存；“仅应用”只修改本次运行的设置。");
+				if (api().collapsingHeader("覆盖层与效果", 1 << 5)) RenderSettings();
+				if (api().collapsingHeader("衰减与清洗", 1 << 5)) RenderDecay();
+				RenderSettingsActions(snapshot);
+				if (api().collapsingHeader("角色管理与运行状态", 0)) RenderMaintenance(snapshot);
 			} catch (const std::exception& e) {
-				logs::error("Menu settings page failed: {}", e.what());
+				logs::error("Menu render failed: {}", e.what());
 			} catch (...) {
-				logs::error("Menu settings page failed with unknown exception");
+				logs::error("Menu render failed with unknown exception");
 			}
 		}
+	}
 
-		void __stdcall renderDecayPage()
-		{
-			try {
-				RenderDecayPage();
-			} catch (const std::exception& e) {
-				logs::error("Menu decay page failed: {}", e.what());
-			} catch (...) {
-				logs::error("Menu decay page failed with unknown exception");
-			}
-		}
-
-		void __stdcall renderMaintenancePage()
-		{
-			try {
-				RenderMaintenancePage();
-			} catch (const std::exception& e) {
-				logs::error("Menu maintenance page failed: {}", e.what());
-			} catch (...) {
-				logs::error("Menu maintenance page failed with unknown exception");
-			}
-		}
+	bool Menu::available()
+	{
+		return api().connect();
 	}
 
 	bool Menu::install()
@@ -617,15 +590,13 @@ namespace slacs
 		}
 		auto& framework = api();
 		if (!framework.connect()) {
-			logs::warn("SKSE Menu Framework is not available; SLACS2 menu pages are not registered");
+			logs::warn("SKSE Menu Framework is not available; SLACS2 menu is not registered");
 			return false;
 		}
 
-		framework.addSectionItem("体液覆盖/设置", &renderSettingsPage);
-		framework.addSectionItem("体液覆盖/衰减与清洗", &renderDecayPage);
-		framework.addSectionItem("体液覆盖/状态与维护", &renderMaintenancePage);
+		framework.addSectionItem("体液覆盖/设置", &renderMenu);
 		installed = true;
-		logs::info("Registered SLACS2 Chinese menu pages with SKSE Menu Framework");
+		logs::info("Registered SLACS2 Chinese settings menu with SKSE Menu Framework");
 		return true;
 	}
 

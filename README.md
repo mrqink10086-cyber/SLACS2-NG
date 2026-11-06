@@ -4,10 +4,10 @@ SLACS2 NG 是 SLACS 2 的原生 C++ 重写：把原来由 Papyrus、StorageUtil�
 
 - 只支持 Skyrim SE **1.6.1170**（`SKSE::Init` 之前拒绝其他运行时）。
 - 复用原 `SLACS_2_Plus_SCO.esp` 的身份：Main Quest `SLACS_Main_Q`、VMAD 脚本类 `SLACS_Main`，Papyrus 只做 P+ 事件转发。
-- 菜单改用 SKSE Menu Framework，三页全中文界面。
+- 菜单改用 SKSE Menu Framework，单一入口、同页分组的全中文界面。
 - 面向新档设计，存档格式为版本化 co-save；全局配置在 `Data/SKSE/Plugins/SLACS2NG.json`。
 
-当前版本 **1.0.0**。DLL 与发布包均已构建，七组宿主检查全部通过；**尚未在游戏内验收**，详见下方“验证状态”。
+当前版本 **1.0.1**。DLL 与发布包均已构建，七组宿主检查全部通过；**尚未在游戏内验收**，详见下方“验证状态”。
 
 ## 功能
 
@@ -16,7 +16,7 @@ SLACS2 NG 是 SLACS 2 的原生 C++ 重写：把原来由 Papyrus、StorageUtil�
 - **衰减与清洗**：自然衰减补算睡眠、等待、快速旅行经过的游戏时间；雨水只累计已观测到的室外降雨；游泳立即清洗；120 活动秒整体清洗（暂停/菜单冻结期间不累计）。
 - **26 个效果组合**：口腔 × 阴道 × 肛门 × 等级（0/1/2），FormID 从 ESP 解析，索引 0 为关闭占位。
 - **RaceMenu 覆盖层**：直接调用 `skee64` 的 C++ 接口，按自有槽位前缀写入，不占用其他模组的槽位；槽位不足时逻辑层保留并周期重试。
-- **三页中文菜单**：覆盖/设置、衰减与清洗、状态与维护；菜单只读运行时快照并提交值命令，动作携带会话 epoch，换档后旧动作被拒绝。
+- **中文设置菜单**：打开“体液覆盖/设置”，在同页展开覆盖层、衰减清洗及角色管理分组，统一应用或保存。配置跨存档共用；菜单只读运行时快照并提交值命令，动作携带会话 epoch，换档后旧动作被拒绝。
 - **诊断**：每 60 秒输出一行 `Perf` 统计（actor 数、环境采样、覆盖层提交、pump 耗时、队列深度、P+ 请求延迟）。
 
 ## 运行环境
@@ -27,7 +27,7 @@ SLACS2 NG 是 SLACS 2 的原生 C++ 重写：把原来由 Papyrus、StorageUtil�
 | SKSE64 | 2.2.6（`skse64_1_6_1170.dll`） |
 | P+ / SexLab | 参考 2.18.1（`SexLab.esm`、`SexLabUtil.dll`） |
 | RaceMenu | 0.4.20（`skee64.dll`） |
-| SKSE Menu Framework | 3.10.0.0 |
+| SKSE Menu Framework | 提供本插件所需菜单导出的兼容版本，不锁定 DLL 文件版本 |
 | SkyUI | `SkyUI_SE.esp`（ESP 主文件要求） |
 
 RaceMenu 需要手动调整 `Data/SKSE/Plugins/skee64.ini` 的覆盖层槽位（默认 6/3/3/3 放不下七个区域）并把 `bPlayerOnly` 设为 0，具体数值见 [package/README.zh-CN.md](package/README.zh-CN.md)。
@@ -58,7 +58,7 @@ foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7
 发布产物：
 
 ```powershell
-py tools/release.py        # -> artifacts/SLACS2NG-1.0.0/ 与同名 .zip + FILE-MANIFEST
+py tools/release.py        # -> artifacts/SLACS2NG-1.0.1/ 与同名 .zip + FILE-MANIFEST
 ```
 
 ## 安装
@@ -78,7 +78,7 @@ src/core         七区域状态机、加层/清除/结算（纯值类型，无�
 src/runtime      生命周期、值命令队列、pump、调度器、环境采样、轮转
 src/papyrus      native 绑定与 P+ 事件桥
 src/integration  P+ 适配、RaceMenu 覆盖层、效果、3D/引擎查询
-src/menu         快照发布与三页菜单
+src/menu         快照发布与同页分组菜单
 src/persistence  co-save 编解码
 tests            七组宿主检查
 tools            package.py / release.py / clean_esp.py / verify_*.py

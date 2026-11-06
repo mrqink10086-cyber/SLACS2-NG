@@ -11,7 +11,7 @@
 | CommonLibSSE-NG | 6.0.0，commit `15ad90b31b2ca09cf477c7e1a43ff5ff05af120f` | 编译期依赖 |
 | P+ / SexLab | 参考基线 2.18.1（`SexLab.esm` 381,243 字节） | Runtime 要求 `SexLab.esm` 和 `SexLabUtil.dll` 已加载；其他版本需自行确认 typed ModEvent 兼容性 |
 | RaceMenu | 0.4.20（`skee64.dll` 0.4.20.0） | 覆盖层接口；必须启用 `RaceMenu.esp` |
-| SKSE Menu Framework | 3.10.0.0（`SKSEMenuFramework.dll`） | 缺失时菜单不显示，业务逻辑仍运行 |
+| SKSE Menu Framework | 提供所需菜单导出的兼容版本（`SKSEMenuFramework.dll`） | 不锁定文件版本；缺失框架或所需导出时会记录依赖错误并停止初始化 |
 | SkyUI | 随 ESP 主文件要求 | `SLACS_2_Plus_SCO.esp` 的主文件包含 `SkyUI_SE.esp` |
 | 中文字体 | Noto Sans CJK SC Regular，OFL 1.1 | 随包提供字体与许可证 |
 
@@ -20,7 +20,7 @@
 ## 安装
 
 1. 确认游戏为 Skyrim SE 1.6.1170，SKSE 为 2.2.6。
-2. 安装 P+（含 `SexLab.esm`、`SexLabUtil.dll`）、RaceMenu 0.4.20、SKSE Menu Framework 3.10。
+2. 安装 P+（含 `SexLab.esm`、`SexLabUtil.dll`）、RaceMenu 0.4.20、兼容的 SKSE Menu Framework。
 3. 将本目录 `Data` 下的内容合并到游戏 `Data` 目录：
    - `SKSE/Plugins/SLACS2 NG.dll`
    - `SKSE/Plugins/SLACS2NG.json`（全局配置，UTF-8）
@@ -30,7 +30,7 @@
    - `SLACS_2_Plus_SCO.esp`
    - `Textures/slacs2/**/*.dds`（七区域共 264 个文件，约 1.2 GB）
 4. 启用 `SLACS_2_Plus_SCO.esp`，确认 `SLACS_Main_Q` 的 VMAD 脚本为 `SLACS_Main`。
-5. 进入游戏后按 F1 打开 SKSE Menu Framework，左侧会出现三个中文页面。
+5. 进入游戏后按 F1 打开 SKSE Menu Framework，选择“体液覆盖/设置”，全部设置在同页分组展开。
 
 > 本包中的 `SKSEMenuFramework.ini` 和 `SKSEMenuFrameworkStrings.json` 会替换框架自带的英文配置与字符串，以获得完整中文外壳。若你还使用其他依赖框架字符串的模组，请先备份这两个文件。
 
@@ -46,9 +46,11 @@
 
 ## 菜单
 
-- **体液覆盖/设置**：覆盖层开关、透明度、Mega、女性来源、女性目标限制、效果法术及 1/3 级阈值、来源类别、高级起始槽位。
-- **体液覆盖/衰减与清洗**：自然衰减、每层间隔（游戏小时）、雨水加速、120 活动秒整体清洗或关闭；说明睡眠/等待/快速旅行、仅室外已观测降雨、菜单暂停和游泳立即清除。
-- **体液覆盖/状态与维护**：角色列表、七区域层数、清除/刷新、依赖与资源状态、最近诊断、折叠的高级槽位和测试加层。
+“体液覆盖/设置”只有一个入口，以下分组在同页展开，设置共用“应用并保存”“仅应用”“撤销修改”：
+
+- **覆盖层与效果**：覆盖层开关、透明度、Mega、女性来源、女性目标限制、效果法术及 1/3 级阈值、来源类别、高级起始槽位。
+- **衰减与清洗**：自然衰减、每层间隔（游戏小时）、雨水加速、120 活动秒整体清洗或关闭；说明睡眠/等待/快速旅行、仅室外已观测降雨、菜单暂停和游泳立即清除。
+- **角色管理与运行状态**：角色列表、七区域层数、清除/刷新、依赖与资源状态、最近诊断和测试加层。
 
 菜单只读取运行时发布的只读快照并提交值命令；角色查找、显示名、配置校验、写盘、RaceMenu 和 VM 访问都由 Runtime 执行。菜单动作携带会话 epoch，切换存档后的旧动作会被拒绝。
 

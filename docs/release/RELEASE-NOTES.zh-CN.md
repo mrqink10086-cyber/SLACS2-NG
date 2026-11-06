@@ -1,9 +1,15 @@
-# SLACS2 NG 1.0.0 发布说明
+# SLACS2 NG 1.0.1 发布说明
 
-发布日期：2026-11-06
+首发日期：2026-11-06（1.0.0）／更新：2026-11-07（1.0.1）
 交付状态：**构建完成，待游戏验收**
 
 SLACS 2 的 C++ 重写版本。原本由 Papyrus、StorageUtil、JContainers、PO3 承担的体液层状态迁到 SKSE64 插件，Papyrus 只保留转发 P+ 事件的薄桥。ESP 身份沿用原 `SLACS_2_Plus_SCO.esp`，状态按新档设计（版本化 co-save，不读取旧 Papyrus 存档数据）。只支持 Skyrim SE 1.6.1170。
+
+## 1.0.1 变更
+
+- **菜单合并为单一入口**：三个分页（设置／衰减与清洗／状态与维护）合并为“体液覆盖/设置”，同页分“覆盖层与效果”“衰减与清洗”“角色管理与运行状态”三个折叠分组，设置区共用“应用并保存”“仅应用”“撤销修改”，角色管理分组默认折叠。改动只涉及 `src/menu/Menu.cpp`、`src/menu/Menu.h`。
+- **框架兼容改成按导出检查**：`Runtime` 的依赖报告不再要求 `SKSEMenuFramework.dll` 文件版本恰为 `3.10.0.0`，改用 `Menu::available()` 探测插件实际使用的菜单导出，版本号只写入日志与报告文本（`expected` 字段变为 `required menu exports`）。框架版本与界面布局不同的安装不再被误判为不兼容。
+- **其余未变**：配置 schema、co-save 格式、ESP、Papyrus 桥与全部玩法逻辑保持 1.0.0 的行为；升级替换 DLL 即可，配置与存档无需迁移。DLL 资源版本 `1.0.1.0`。
 
 ## 功能
 
@@ -12,7 +18,7 @@ SLACS 2 的 C++ 重写版本。原本由 Papyrus、StorageUtil、JContainers、P
 - **衰减与清洗**：自然衰减补算睡眠、等待、快速旅行经过的游戏时间；雨水只累计已观测到的室外降雨；游泳立即清洗；120 活动秒整体清洗（可关），暂停/菜单冻结期间不累计，32 位 `runTimeMS` 回绕已处理。
 - **26 个效果组合**：口腔 × 阴道 × 肛门 × 等级（0/1/2），FormID 从 ESP 解析，索引 0 为关闭占位。
 - **RaceMenu 覆盖层**：直接调用 `skee64` 的 C++ 接口，按自有槽位前缀写入（Body 7..26、Face 7..12、Hands/Feet 7..8），不占用其他模组的槽位；槽位不足返回 `NoOwnedCapacity`，逻辑层保留并周期重试。Body 写 diffuse + normal + specular，Face 只写 normal。
-- **三页中文菜单**：SKSE Menu Framework 3.10，覆盖/设置、衰减与清洗、状态与维护；菜单只读运行时快照并提交值命令，动作携带会话 epoch，换档后旧动作被拒绝。框架缺失时菜单不显示，业务逻辑照常运行。
+- **中文设置菜单**：单一“体液覆盖/设置”入口，覆盖层、衰减清洗、角色管理在同页分组展开，统一应用或保存。全局配置跨存档共用；菜单只读运行时快照并提交值命令，动作携带会话 epoch，换档后旧动作被拒绝。框架兼容性按所需导出检查，不再锁定 DLL 文件版本；缺失框架或所需导出时会记录依赖错误并停止初始化。
 - **配置与存档**：`Data/SKSE/Plugins/SLACS2NG.json`，UTF-8，schemaVersion 1，临时文件写盘后可回滚；非法值/未知字段/枚举错误按中文字段说明拒绝，`SettingsFeedback` 分别报告应用与写盘状态。角色层、衰减余量与整体清除剩余时间存在版本化 co-save；读档不覆盖全局配置。
 - **诊断**：每 60 秒输出一行 `Perf`（actor 数、环境采样、覆盖层提交、槽位、pump 次数与平均/最大耗时、队列峰值、P+ 请求延迟）。
 - **身份与兼容**：复用 Main Quest `SLACS_Main_Q` 与 VMAD 脚本类 `SLACS_Main`，任务条件与 alias 不需要改动；Papyrus 不再保存状态。
@@ -41,7 +47,7 @@ SLACS 2 的 C++ 重写版本。原本由 Papyrus、StorageUtil、JContainers、P
 | CommonLibSSE-NG | 6.0.0，commit `15ad90b31b2ca09cf477c7e1a43ff5ff05af120f` |
 | P+ / SexLab | 参考 2.18.1，`SexLab.esm` 381,243 字节 |
 | RaceMenu | 0.4.20，`skee64.dll` 0.4.20.0 |
-| SKSE Menu Framework | 3.10.0.0，SHA-256 `e3e893677769a374e8927cd3acd79e6c43cf224d86e6cc817ada069c4da7aa69` |
+| SKSE Menu Framework | 提供所需菜单导出的兼容版本；原核对样本为 3.10.0.0，SHA-256 `e3e893677769a374e8927cd3acd79e6c43cf224d86e6cc817ada069c4da7aa69`，此文件版本及哈希不作为运行限制 |
 | 中文字体 | Noto Sans CJK SC Regular，OFL 1.1 |
 
 `SLACS_2_Plus_SCO.esp` 主文件：`Skyrim.esm`、`SexLab.esm`、`SkyUI_SE.esp`、`RaceMenu.esp`。
@@ -78,7 +84,7 @@ py tools/release.py
 1. 安装上述 1170 依赖组合。
 2. 将 `Data` 合并到游戏目录；启用 `SLACS_2_Plus_SCO.esp`。
 3. 调整 `Data/SKSE/Plugins/skee64.ini`：Body/Face/Hands/Feet 至少 27/13/9/9（RaceMenu 按 `i < iNumOverlays` 遍历），`bPlayerOnly=0`。
-4. 进入游戏按 F1，使用三个中文页面。
+4. 进入游戏按 F1，打开“体液覆盖/设置”，在同页展开分组并调整设置。
 
 配置路径：`Data/SKSE/Plugins/SLACS2NG.json`。读取存档不会覆盖该全局文件；每个存档的角色状态在 co-save。
 
