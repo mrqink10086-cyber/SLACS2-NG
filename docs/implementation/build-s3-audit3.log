@@ -1,0 +1,13 @@
+[0m[38;5;2;1m[  2%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\persistence\SerializationCodec.cpp[0m
+[0m[38;5;2;1m[ 94%]:[0m [38;5;5;1m<SLACS2 NG>[0m [38;5;5;1mlinking.release SLACS2 NG.dll[0m
+Starting 1 compile threads for 1 files...
+Compiling "SLACS_Main"...
+Starting assembly of SLACS_Main
+0 error(s), 0 warning(s)
+Assembly succeeded
+
+Compilation succeeded.
+
+Batch compile of 1 files finished. 1 succeeded, 0 failed.
+package ready: E:\source\repos\SLACS2 NG\package\Data
+[0m[38;5;2;1m[100%]:[0m [38;5;2;1mbuild ok, spent 2.453s[0m

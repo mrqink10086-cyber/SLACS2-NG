@@ -1,0 +1,30 @@
+[0m[38;5;2;1m[  0%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release build\.gens\SLACS2 NG\windows\x64\release\src\pch.h[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\core\Core.cpp[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\integration\OverlayAdapter.cpp[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\integration\Papyrus.cpp[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\integration\PPlusAdapter.cpp[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\integration\QuestBridge.cpp[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\integration\RaceMenuApi.cpp[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\main.cpp[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\persistence\Serialization.cpp[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\persistence\SerializationCodec.cpp[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\runtime\ActorRegistry.cpp[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\runtime\BackgroundPump.cpp[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\runtime\Ingress.cpp[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\runtime\Runtime.cpp[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\runtime\Scheduler.cpp[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release build\.gens\SLACS2 NG\windows\x64\release\commonlibsse-ng-plugin.cpp[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release build\.gens\SLACS2 NG\windows\x64\release\commonlib-plugin.rc[0m
+[0m[38;5;2;1m[ 91%]:[0m [38;5;5;1m<SLACS2 NG>[0m compiling.release src\config\Settings.cpp[0m
+[0m[38;5;2;1m[ 94%]:[0m [38;5;5;1m<SLACS2 NG>[0m [38;5;5;1mlinking.release SLACS2 NG.dll[0m
+Starting 1 compile threads for 1 files...
+Compiling "SLACS_Main"...
+Starting assembly of SLACS_Main
+0 error(s), 0 warning(s)
+Assembly succeeded
+
+Compilation succeeded.
+
+Batch compile of 1 files finished. 1 succeeded, 0 failed.
+package ready: E:\source\repos\SLACS2 NG\package\Data
+[0m[38;5;2;1m[100%]:[0m [38;5;2;1mbuild ok, spent 10.688s[0m

@@ -1,0 +1,9 @@
+[0m[38;5;2;1m[ 35%]:[0m [38;5;5;1m<slacs_s4_checks>[0m compiling.release src\core\Core.cpp[0m
+[0m[38;5;2;1m[ 43%]:[0m [38;5;5;1m<slacs_s5s6_checks>[0m compiling.release src\core\Core.cpp[0m
+[0m[38;5;2;1m[ 75%]:[0m [38;5;5;1m<slacs_s5s6_checks>[0m [38;5;5;1mlinking.release slacs_s5s6_checks.exe[0m
+[0m[38;5;2;1m[ 79%]:[0m [38;5;5;1m<slacs_s4_checks>[0m [38;5;5;1mlinking.release slacs_s4_checks.exe[0m
+[0m[38;5;2;1m[100%]:[0m [38;5;2;1mbuild ok, spent 1.75s[0m
+SLACS2 NG S1 checks passed
+SLACS2 NG S4 checks passed
+SLACS2 NG S5/S6 checks passed
+SLACS2 NG S5 persistence checks passed

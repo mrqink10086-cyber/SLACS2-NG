@@ -1,0 +1,71 @@
+Vaginal texture directory: E:\source\repos\SLACS2 NG\package\Data\Textures\slacs2\Vaginal
+body1.dds            2048x2048 DXT5 5592560 bytes
+body10.dds           2048x2048 DXT5 5592560 bytes
+body10_n.dds         2048x2048 DXT5 4194432 bytes
+body10_s.dds         2048x2048 DXT5 4194432 bytes
+body11.dds           2048x2048 DXT5 5592560 bytes
+body11_n.dds         2048x2048 DXT5 4194432 bytes
+body11_s.dds         2048x2048 DXT5 4194432 bytes
+body12.dds           2048x2048 DXT5 5592560 bytes
+body12_n.dds         2048x2048 DXT5 4194432 bytes
+body12_s.dds         2048x2048 DXT5 4194432 bytes
+body1_n.dds          2048x2048 DXT5 4194432 bytes
+body1_s.dds          2048x2048 DXT5 4194432 bytes
+body2.dds            2048x2048 DXT5 5592560 bytes
+body2_n.dds          2048x2048 DXT5 4194432 bytes
+body2_s.dds          2048x2048 DXT5 4194432 bytes
+body3.dds            2048x2048 DXT5 5592560 bytes
+body3_n.dds          2048x2048 DXT5 4194432 bytes
+body3_s.dds          2048x2048 DXT5 4194432 bytes
+body4.dds            2048x2048 DXT5 5592560 bytes
+body4_n.dds          2048x2048 DXT5 4194432 bytes
+body4_s.dds          2048x2048 DXT5 4194432 bytes
+body5.dds            2048x2048 DXT5 5592560 bytes
+body5_n.dds          2048x2048 DXT5 4194432 bytes
+body5_s.dds          2048x2048 DXT5 4194432 bytes
+body6.dds            2048x2048 DXT5 5592560 bytes
+body6_n.dds          2048x2048 DXT5 4194432 bytes
+body6_s.dds          2048x2048 DXT5 4194432 bytes
+body7.dds            2048x2048 DXT5 5592560 bytes
+body7_n.dds          2048x2048 DXT5 4194432 bytes
+body7_s.dds          2048x2048 DXT5 4194432 bytes
+body8.dds            2048x2048 DXT5 5592560 bytes
+body8_n.dds          2048x2048 DXT5 4194432 bytes
+body8_s.dds          2048x2048 DXT5 4194432 bytes
+body9.dds            2048x2048 DXT5 5592560 bytes
+body9_n.dds          2048x2048 DXT5 4194432 bytes
+body9_s.dds          2048x2048 DXT5 4194432 bytes
+m_body1.dds          2048x2048 DXT5 5592560 bytes
+m_body10.dds         2048x2048 DX10 dxgi=98 4194452 bytes
+m_body10_n.dds       2048x2048 DXT5 4194432 bytes
+m_body11.dds         2048x2048 DXT5 5592560 bytes
+m_body11_n.dds       2048x2048 DXT5 4194432 bytes
+m_body12.dds         2048x2048 DXT5 5592560 bytes
+m_body12_n.dds       2048x2048 DXT5 4194432 bytes
+m_body1_n.dds        2048x2048 DXT5 4194432 bytes
+m_body2.dds          2048x2048 DXT5 5592560 bytes
+m_body2_n.dds        2048x2048 DXT5 4194432 bytes
+m_body3.dds          2048x2048 DXT5 5592560 bytes
+m_body3_n.dds        2048x2048 DXT5 4194432 bytes
+m_body4.dds          2048x2048 DXT5 5592560 bytes
+m_body4_n.dds        2048x2048 DXT5 4194432 bytes
+m_body5.dds          2048x2048 DX10 dxgi=98 4194452 bytes
+m_body5_n.dds        2048x2048 DXT5 4194432 bytes
+m_body6.dds          2048x2048 DX10 dxgi=98 4194452 bytes
+m_body6_n.dds        2048x2048 DXT5 4194432 bytes
+m_body7.dds          2048x2048 DX10 dxgi=98 4194452 bytes
+m_body7_n.dds        2048x2048 DXT5 4194432 bytes
+m_body8.dds          2048x2048 DX10 dxgi=98 4194452 bytes
+m_body8_n.dds        2048x2048 DXT5 4194432 bytes
+m_body9.dds          2048x2048 DX10 dxgi=98 4194452 bytes
+m_body9_n.dds        2048x2048 DXT5 4194432 bytes
+normal variants: 12 mega variants: 12
+normal complete (d,n,s): True
+mega complete (d,n): True
+mega specular count: 0
+[Features] bEnableOverlays=1 ; Default[1]
+[Overlays] bPlayerOnly=1 ; Default[1]
+[Overlays/Body] ; "Body [Ovl#]" and "Body [SOvl#]" iNumOverlays=6 ; Default[6]
+[Overlays/Hands] ; "Hands [Ovl#]" and "Hands [SOvl#]" iNumOverlays=3 ; Default[3]
+[Overlays/Feet] ; "Feet [Ovl#]" and "Feet [SOvl#]" iNumOverlays=3 ; Default[3]
+[Overlays/Face] ; "Face [Ovl#]" and "Face [SOvl#]" iNumOverlays=3 ; Default[3]

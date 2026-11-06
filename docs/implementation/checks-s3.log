@@ -1,0 +1,11 @@
+Environment: Windows x64 / VS2022 / XMake 3.0.9 / CommonLibSSE-NG 6.0.0
+Command: xmake build -y slacs_s1_checks slacs_s4_checks slacs_s5s6_checks slacs_s5_persistence_checks
+[0m[38;5;2;1m[100%]:[0m [38;5;2;1mbuild ok, spent 0.063s[0m
+--- run s1 ---
+SLACS2 NG S1 checks passed
+--- run s4 ---
+SLACS2 NG S4 checks passed
+--- run s5s6 ---
+SLACS2 NG S5/S6 checks passed
+--- run s5 persistence ---
+SLACS2 NG S5 persistence checks passed

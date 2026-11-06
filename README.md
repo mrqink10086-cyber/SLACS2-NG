@@ -1,51 +1,123 @@
-# CommonLibSSE-NG Plugin Template
+# SLACS2 NG
 
-This is a basic plugin template using CommonLibSSE-NG.
+SLACS2 NG 是 SLACS 2 的原生 C++ 重写：把原来由 Papyrus、StorageUtil、JContainers、PO3 承担的体液层状态迁到 SKSE64 插件，用 C++ 容器、调度器和 SKSE 序列化实现七区域 × 五层的覆盖层业务。
 
-### Requirements
-* [XMake](https://xmake.io) [3.0.0+]
-* C++23 Compiler (MSVC, Clang-CL)
+- 只支持 Skyrim SE **1.6.1170**（`SKSE::Init` 之前拒绝其他运行时）。
+- 复用原 `SLACS_2_Plus_SCO.esp` 的身份：Main Quest `SLACS_Main_Q`、VMAD 脚本类 `SLACS_Main`，Papyrus 只做 P+ 事件转发。
+- 菜单改用 SKSE Menu Framework，三页全中文界面。
+- 面向新档设计，存档格式为版本化 co-save；全局配置在 `Data/SKSE/Plugins/SLACS2NG.json`。
 
-## Getting Started
-```bat
-git clone --recurse-submodules https://github.com/libxse/commonlibsse-ng-template
-cd commonlibsse-ng-template
+当前版本 **1.0.0**。DLL 与发布包均已构建，七组宿主检查全部通过；**尚未在游戏内验收**，详见下方“验证状态”。
+
+## 功能
+
+- **七区域、五层**：Face、BodyVaginal、BodyAnal、BodyBreast、BodyLegs、Hands、Feet，每区默认五层，LIFO 移除。
+- **唯一自动加层入口**：P+ 的 `SexlabOrgasmSeparate`，经 `SLACS_Main` 薄桥把 `(sourceActor, tid)` 交给 native；`HookAnimationStart/End` 只维护过程上下文。
+- **衰减与清洗**：自然衰减补算睡眠、等待、快速旅行经过的游戏时间；雨水只累计已观测到的室外降雨；游泳立即清洗；120 活动秒整体清洗（暂停/菜单冻结期间不累计）。
+- **26 个效果组合**：口腔 × 阴道 × 肛门 × 等级（0/1/2），FormID 从 ESP 解析，索引 0 为关闭占位。
+- **RaceMenu 覆盖层**：直接调用 `skee64` 的 C++ 接口，按自有槽位前缀写入，不占用其他模组的槽位；槽位不足时逻辑层保留并周期重试。
+- **三页中文菜单**：覆盖/设置、衰减与清洗、状态与维护；菜单只读运行时快照并提交值命令，动作携带会话 epoch，换档后旧动作被拒绝。
+- **诊断**：每 60 秒输出一行 `Perf` 统计（actor 数、环境采样、覆盖层提交、pump 耗时、队列深度、P+ 请求延迟）。
+
+## 运行环境
+
+| 组件 | 版本/标识 |
+| --- | --- |
+| Skyrim SE | 1.6.1170.0 |
+| SKSE64 | 2.2.6（`skse64_1_6_1170.dll`） |
+| P+ / SexLab | 参考 2.18.1（`SexLab.esm`、`SexLabUtil.dll`） |
+| RaceMenu | 0.4.20（`skee64.dll`） |
+| SKSE Menu Framework | 3.10.0.0 |
+| SkyUI | `SkyUI_SE.esp`（ESP 主文件要求） |
+
+RaceMenu 需要手动调整 `Data/SKSE/Plugins/skee64.ini` 的覆盖层槽位（默认 6/3/3/3 放不下七个区域）并把 `bPlayerOnly` 设为 0，具体数值见 [package/README.zh-CN.md](package/README.zh-CN.md)。
+
+## 构建
+
+需要 [XMake](https://xmake.io) 3.0+（本机验证 3.0.9）与 MSVC 2022 / C++23：
+
+```powershell
+git clone --recurse-submodules https://github.com/mrqink10086-cyber/SLACS2-NG "SLACS2 NG"
+cd "SLACS2 NG"
+xmake f -p windows -a x64 --toolchain=msvc -y
+xmake build -y "SLACS2 NG"
 ```
 
-### Build
-To build the project, run the following command:
-```bat
-xmake build
+`after_build` 会自动执行 `tools/package.py`：编译 Papyrus 桥、核对 ESP/VMAD/264 张贴图/字体缺字/菜单字符串/1170 运行时元数据，并把 DLL 放进 `package/Data`。
+
+宿主检查（不启动游戏）：
+
+```powershell
+foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7_checks",
+               "slacs_s5_persistence_checks","slacs_s8_checks","slacs_s9_checks") {
+  xmake build -y $t
+  & "build/windows/x64/release/$t.exe"
+}
 ```
 
-> ***Note:*** *This will generate a `build/windows/` directory in the **project's root directory** with the build output.*
+发布产物：
 
-
-### Build Output (Optional)
-If you want to redirect the build output, set one of the following environment variables:
-
-- Path to a Mod Manager mods folder: `XSE_TES5_MODS_PATH`
-
-  or
-
-- Path to a Skyrim install folder: `XSE_TES5_GAME_PATH`
-
-**Alternatively**, use the [set_installdir](https://xmake.io/api/description/project-target.html#set-installdir) api to set a specific install path instead, either globally or per target. By default, your plugin `.dll` and `.pdb` are included, but you can *add* more files to be installed by using the [add_installfiles](https://xmake.io/api/description/project-target.html#add-installfiles) api.
-
-### Project Generation (Optional)
-If you use Visual Studio, run the following command:
-```bat
-xmake project -k vsxmake
+```powershell
+py tools/release.py        # -> artifacts/SLACS2NG-1.0.0/ 与同名 .zip + FILE-MANIFEST
 ```
 
-> ***Note:*** *This will generate a `vsxmakeXXXX/` directory in the **project's root directory** using the latest version of Visual Studio installed on the system.*
+## 安装
 
-**Alternatively**, if you do not use Visual Studio, you can generate a `compile_commands.json` file for use with a laguage server like clangd in any code editor that supports it, like vscode:
-```bat
-xmake project -k compile_commands
+1. 备齐上表依赖，确认游戏为 1.6.1170。
+2. 把发布包内 `Data/` 合并到游戏 `Data/`，启用 `SLACS_2_Plus_SCO.esp`。
+3. 修改 `skee64.ini`：Body/Face/Hands/Feet 至少 27/13/9/9，`bPlayerOnly=0`。
+4. 进游戏按 F1 打开菜单。
+
+完整步骤、配置语义、菜单说明与已知限制见 [package/README.zh-CN.md](package/README.zh-CN.md)。
+
+## 仓库结构
+
+```text
+src/config       设置模型、JSON 读写与校验
+src/core         七区域状态机、加层/清除/结算（纯值类型，无引擎依赖）
+src/runtime      生命周期、值命令队列、pump、调度器、环境采样、轮转
+src/papyrus      native 绑定与 P+ 事件桥
+src/integration  P+ 适配、RaceMenu 覆盖层、效果、3D/引擎查询
+src/menu         快照发布与三页菜单
+src/persistence  co-save 编解码
+tests            七组宿主检查
+tools            package.py / release.py / clean_esp.py / verify_*.py
+docs             PLAN、INTERFACES、SESSION-01..05、AUDIT、RELEASE-NOTES
 ```
 
-> ***Note:*** *You must have a language server extension installed to make use of this file. I recommend `clangd`. Do not have more than one installed at a time as they will conflict with each other. I also recommend installing the `xmake` extension if available to make building the project easier.*
+## 文档
 
-## Documentation
-Please refer to the [Wiki](../../wiki/Home) for more advanced topics.
+- [实现计划](docs/PLAN.zh-CN.md)
+- [接口契约](docs/INTERFACES.zh-CN.md)
+- 实现记录：[SESSION-01](docs/implementation/SESSION-01.md)、[02](docs/implementation/SESSION-02.md)、[03](docs/implementation/SESSION-03.md)、[04](docs/implementation/SESSION-04.md)、[05](docs/implementation/SESSION-05.md)
+- [源码审核与修复（2026-11-06）](docs/AUDIT-2026-11-06.zh-CN.md)
+- [发布说明](docs/release/RELEASE-NOTES.zh-CN.md)
+
+## 验证状态
+
+| 项目 | 状态 |
+| --- | --- |
+| DLL / PEX / ESP / 264 贴图 / 字体 / 菜单资源构建 | 构建完成，`tools/package.py` 全部校验通过 |
+| 七组宿主检查（逻辑、调度、序列化、菜单、时钟） | 全部通过 |
+| 同七组检查在 LLVM 20 AddressSanitizer 下运行 | 全部通过（ASan 只覆盖独立模块，不是线程竞态检测器） |
+| 菜单动作贯通 UI → Runtime → Core → 外观/效果 | 待游戏验收 |
+| 读档、换档、tid 复用、异步取消 | 待游戏验收 |
+| 七区域覆盖层、26 效果、与 SlaveTatsNG 共存 | 待游戏验收 |
+| 实机性能预算 | 待游戏验收 |
+
+没有完成的实机项目不会被标记为“验收通过”。审核结论与被修复缺陷的清单见 `docs/AUDIT-2026-11-06.zh-CN.md`。
+
+## 已知限制
+
+- 必须调整 RaceMenu 槽位；默认配置下只能显示部分区域。
+- 未接入 BiS / DnB：没有验证过的外部信号，不写“已支持”。
+- UBE 贴图不在发布包内，缺 `textures/slacs2_ube` 是预期状态。
+- 保存快照可能比最新一次 pump 晚一拍；保存回调不等待 VM、任务或材质。
+- 没有自动 `Runtime::shutdown`；进程退出由 SKSE 回收。
+- 旧 Papyrus 通知不带会话令牌，换档瞬间的极旧事件会被 epoch 拒绝，但不会跨档加层。
+
+## 许可
+
+GPL-3.0，附 Modding Exception（见 [LICENSE](LICENSE)、[EXCEPTIONS](EXCEPTIONS)）。
+
+项目骨架来自 [libxse/commonlibsse-ng-template](https://github.com/libxse/commonlibsse-ng-template)，依赖 [CommonLibSSE-NG](https://github.com/alandtse/CommonLibVR)（6.0.0，`15ad90b`）。发布包内含 Noto Sans CJK SC（SIL OFL 1.1，随附许可证）；SKSE Menu Framework、P+、RaceMenu、SkyUI、SKSE 均为外部依赖，不再分发。
