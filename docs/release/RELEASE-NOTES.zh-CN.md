@@ -3,7 +3,19 @@
 发布日期：2026-11-06
 交付状态：**构建完成，待游戏验收**
 
-第一个正式版本。相对 `1.0.0-rc1`，本版包含 2026-11-06 源码审核的全部修复（F1–F8）与新增回归，DLL 版本资源为 `1.0.0.0`。
+SLACS 2 的 C++ 重写版本。原本由 Papyrus、StorageUtil、JContainers、PO3 承担的体液层状态迁到 SKSE64 插件，Papyrus 只保留转发 P+ 事件的薄桥。ESP 身份沿用原 `SLACS_2_Plus_SCO.esp`，状态按新档设计（版本化 co-save，不读取旧 Papyrus 存档数据）。只支持 Skyrim SE 1.6.1170。
+
+## 功能
+
+- **七区域、五层**：Face、BodyVaginal、BodyAnal、BodyBreast、BodyLegs、Hands、Feet 各自独立，每区默认五层，LIFO 移除；区域之间互不干扰。
+- **唯一自动加层入口**：只挂 P+ 的 `SexlabOrgasmSeparate`，`SLACS_Main` 把 `(sourceActor, tid)` 交给 native；`HookAnimationStart/End` 只维护过程上下文。
+- **衰减与清洗**：自然衰减补算睡眠、等待、快速旅行经过的游戏时间；雨水只累计已观测到的室外降雨；游泳立即清洗；120 活动秒整体清洗（可关），暂停/菜单冻结期间不累计，32 位 `runTimeMS` 回绕已处理。
+- **26 个效果组合**：口腔 × 阴道 × 肛门 × 等级（0/1/2），FormID 从 ESP 解析，索引 0 为关闭占位。
+- **RaceMenu 覆盖层**：直接调用 `skee64` 的 C++ 接口，按自有槽位前缀写入（Body 7..26、Face 7..12、Hands/Feet 7..8），不占用其他模组的槽位；槽位不足返回 `NoOwnedCapacity`，逻辑层保留并周期重试。Body 写 diffuse + normal + specular，Face 只写 normal。
+- **三页中文菜单**：SKSE Menu Framework 3.10，覆盖/设置、衰减与清洗、状态与维护；菜单只读运行时快照并提交值命令，动作携带会话 epoch，换档后旧动作被拒绝。框架缺失时菜单不显示，业务逻辑照常运行。
+- **配置与存档**：`Data/SKSE/Plugins/SLACS2NG.json`，UTF-8，schemaVersion 1，临时文件写盘后可回滚；非法值/未知字段/枚举错误按中文字段说明拒绝，`SettingsFeedback` 分别报告应用与写盘状态。角色层、衰减余量与整体清除剩余时间存在版本化 co-save；读档不覆盖全局配置。
+- **诊断**：每 60 秒输出一行 `Perf`（actor 数、环境采样、覆盖层提交、槽位、pump 次数与平均/最大耗时、队列峰值、P+ 请求延迟）。
+- **身份与兼容**：复用 Main Quest `SLACS_Main_Q` 与 VMAD 脚本类 `SLACS_Main`，任务条件与 alias 不需要改动；Papyrus 不再保存状态。
 
 ## 相对 1.0.0-rc1 的修复
 
@@ -18,16 +30,7 @@
 | F7 | 环境采样与首次 3D 检查每轮遍历全部角色，绕过 command/deadline 预算；菜单发布对每个角色再次解析 3D。 | 环境每批至多 64 个/2ms、3D 每批至多 64 个/1ms，未完成扫描 25ms 后续跑；菜单读取缓存 3D 状态（`src/runtime/Runtime.cpp:888`、`:1464`、`:1813`）。 |
 | F8 | 新会话尚无成功自动加层时菜单没有 Core actor，无法对玩家做首次测试加层。 | 菜单增加未跟踪玩家候选，TestAdd 后重新解析 actor 并由 Core 创建业务状态；候选禁用清除/刷新/TestClear（`src/runtime/Runtime.cpp:1714`、`:1843`、`src/menu/Menu.cpp:469`）。 |
 
-新增回归位于 `tests/s5s6_checks.cpp:117`（same-due 最新 payload、索引增长、取消、跨时钟域、steady timer）与 `tests/s9_checks.cpp:42`（130 项队列中前 128 项不可用时仍处理末尾可用项、删除/清空/回绕）。
-
-## 本版内容
-
-- S8：SKSE Menu Framework 3.10 三页中文菜单，`Menu::publish/snapshot/submit` 贯通 UI → Runtime → Core → RaceMenu/效果。
-- S8：`Settings::load/validate/save`，配置位于 `Data/SKSE/Plugins/SLACS2NG.json`，UTF-8，schemaVersion 1；临时文件写盘后可回滚。
-- S8：`SettingsFeedback` 分别报告应用与写盘状态；写盘失败保留已生效设置并显示中文结果。
-- S9：中文宿主字符串、Noto Sans CJK SC 字体、`EnableChinese=true` 字形配置、字体许可证和缺字检查。
-- S9：暂停/菜单冻结期间活动秒不再累积（`src/runtime/ActiveClock.h`），覆盖 32 位 `runTimeMS` 回绕。
-- 保留 S1–S7：P+ typed 事件转发、唯一自动加层入口、五层上限、LIFO、七区域、26 效果、保存/读档、衰减/降雨/游泳清洗。
+新增回归位于 `tests/s5s6_checks.cpp:117`（same-due 最新 payload、索引增长、取消、跨时钟域、steady timer）与 `tests/s9_checks.cpp:42`（130 项队列中前 128 项不可用时仍处理末尾可用项、删除/清空/回绕）。S8 新增 `Menu::publish/snapshot/submit` 与 `Settings::load/validate/save`；S9 新增中文字符串、Noto Sans CJK SC 字体与暂停期间活动秒不累计。
 
 ## 实际 1170 依赖组合
 
@@ -53,7 +56,7 @@ xmake build -y "SLACS2 NG"
 
 构建后 `tools/package.py` 自动执行：ESP 结构/VMAD、264 个贴图、菜单配置与字符串、字体缺字、Papyrus 编译、PEX 字符串、1170 运行时元数据，并把 DLL 放入 `package/Data`。
 
-测试：
+## 测试
 
 ```powershell
 foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7_checks","slacs_s5_persistence_checks","slacs_s8_checks","slacs_s9_checks") {
@@ -62,13 +65,13 @@ foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7
 }
 ```
 
-发布产物：
+## 发布产物
 
 ```powershell
 py tools/release.py
 ```
 
-输出 `artifacts/SLACS2NG-1.0.0/`、同名 `.zip` 和 `FILE-MANIFEST.json/.txt`。
+输出 `artifacts/SLACS2NG-1.0.0/`、同名 `.zip` 与 `FILE-MANIFEST.json/.txt`。1.0.0 包为 1,281,040,549 字节、276 个条目（274 个文件、264 张 DDS），SHA-256 `337d2a495e4cf14ccbacfbfac53dcbd27ccf329dd35fc21e617deb03401a78f6`。
 
 ## 安装
 
@@ -117,3 +120,12 @@ Perf actors=... envSamples=... overlaySubmits=... overlaySlots=... pumps=... pum
 - Noto Sans CJK SC：SIL OFL 1.1，随包附许可证。
 - SKSE Menu Framework：只分发配置格式与中文字符串，不重分发 DLL。
 - P+、RaceMenu、SkyUI、SKSE：外部依赖，不随包分发。
+
+## 已知限制
+
+- 必须调整 RaceMenu 槽位；默认 6/3/3/3 且 `bPlayerOnly=1` 时只能显示部分区域。
+- UBE 贴图不在发布包内，缺 `textures/slacs2_ube` 是预期状态。
+- 保存快照可能比最新一次 pump 晚一拍；保存回调不等待 VM、任务或材质。
+- 没有自动 `Runtime::shutdown`；进程退出由 SKSE 回收。
+- 旧 Papyrus 通知不带会话令牌，换档瞬间的极旧事件会被 epoch 拒绝，但不会跨档加层。
+- 面向新档设计：co-save 为新的版本化格式，不迁移旧 Papyrus 存档里的层状态。
