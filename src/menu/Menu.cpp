@@ -334,14 +334,15 @@ namespace slacs
 					"手部起始槽",
 					"足部起始槽",
 				};
+				constexpr std::array<int, 4> maxStarts{ 107, 121, 125, 125 };
 				for (std::size_t i = 0; i < labels.size(); ++i) {
 					int value = state.draft.firstOwnedSlot[i];
 					api().setNextItemWidth(220.0F);
 					if (api().inputInt(labels[i], &value, 1, 1, 0)) {
-						state.draft.firstOwnedSlot[i] = static_cast<std::uint8_t>(std::clamp(value, 0, 250));
+						state.draft.firstOwnedSlot[i] = static_cast<std::uint8_t>(std::clamp(value, 0, maxStarts[i]));
 					}
 				}
-				TextDisabled("修改槽位后必须重新加载或让 RaceMenu 重建 3D，旧槽位不会自动迁移。");
+				TextDisabled("应用后会迁移已有精痕；修改 skee64.ini 的容量后需重启游戏。RaceMenu 每个域最多 127 个槽。");
 			}
 
 		}

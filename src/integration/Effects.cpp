@@ -98,14 +98,22 @@ namespace slacs
 			if (!spell || spell == desiredSpell) {
 				continue;
 			}
-			if (actor->HasSpell(spell) && actor->RemoveSpell(spell)) {
+			if (actor->HasSpell(spell)) {
+				if (!actor->RemoveSpell(spell) && actor->HasSpell(spell)) {
+					result.status = EffectStatus::Failed;
+					result.error = EffectErrorCode::ApiFailure;
+					return result;
+				}
 				changed = true;
 			}
 		}
 		if (desiredSpell && !actor->HasSpell(desiredSpell)) {
-			if (actor->AddSpell(desiredSpell)) {
-				changed = true;
+			if (!actor->AddSpell(desiredSpell) && !actor->HasSpell(desiredSpell)) {
+				result.status = EffectStatus::Failed;
+				result.error = EffectErrorCode::ApiFailure;
+				return result;
 			}
+			changed = true;
 		}
 
 		applied_[a_target.actor] = Applied{

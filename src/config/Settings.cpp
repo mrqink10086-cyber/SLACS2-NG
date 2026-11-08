@@ -659,14 +659,14 @@ namespace slacs
 			a_value.spellLevel1Threshold > a_value.spellLevel2Threshold) {
 			add("spellLevel2Threshold", SettingsIssueCode::OutOfRange);
 		}
-		constexpr std::uint16_t kMaxSlot = 250;
+		constexpr std::uint16_t kMaxSlot = 126;
 		constexpr std::array<const char*, 4> kSlotKeys{
 			"firstOwnedSlot[0]",
 			"firstOwnedSlot[1]",
 			"firstOwnedSlot[2]",
 			"firstOwnedSlot[3]",
 		};
-		constexpr std::array<Region, kRegionCount> kDomainProbe{
+		constexpr std::array<Region, kSlotKeys.size()> kDomainProbe{
 			Region::BodyVaginal,
 			Region::Face,
 			Region::Hands,

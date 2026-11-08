@@ -147,5 +147,6 @@ namespace slacs
 		RaceMenuApi api_;
 		std::unordered_map<std::uint64_t, AppliedRegion> applied_;
 		std::unordered_map<ActorId, SessionEpoch> initializedActors_;
+		std::unordered_map<ActorId, std::uint8_t> restoredDomains_;
 	};
 }

@@ -1,11 +1,23 @@
-# SLACS2 NG 1.0.1 发布说明
+# SLACS2 NG 1.0.2 发布说明
 
 首发日期：2026-11-06（1.0.0）／更新：2026-11-07（1.0.1）
+本次修复构建：2026-11-08，版本号 1.0.2，包名 `SLACS2NG-1.0.2`。
 交付状态：**构建完成，待游戏验收**
 
 SLACS 2 的 C++ 重写版本。原本由 Papyrus、StorageUtil、JContainers、PO3 承担的体液层状态迁到 SKSE64 插件，Papyrus 只保留转发 P+ 事件的薄桥。ESP 身份沿用原 `SLACS_2_Plus_SCO.esp`，状态按新档设计（版本化 co-save，不读取旧 Papyrus 存档数据）。只支持 Skyrim SE 1.6.1170。
 
-## 1.0.1 变更
+## 2026-11-08 修复构建
+
+- 空槽只有残留透明度时可正常复用，不再因此只应用一层。
+- 修改起始槽时保留其他区域刚迁入的精痕；读档后也会清理旧全局配置范围外的 SLACS 精痕。
+- 配置校验修复极大槽位值触发的数组越界，并按 RaceMenu 每域 127 槽限制输入。
+- 清理精痕时逐键核对材质所有权，保留其他模组改写的材质和透明度。
+- 效果法术添加或移除失败会保留重试，成功缓存只在效果达成后更新。
+- 双人场景保留没有对应 P+ CTYPE 的乳部阶段标签回退，多人场景不广播该标签。
+
+三位独立 `gpt-6-luna xhigh` 子代理按代码和业务契约审查。十套原生检查、overlay/effects/S7/P+ 映射的 AddressSanitizer 检查通过；尚待游戏验收。详细记录见 `docs/AUDIT-2026-11-08.zh-CN.md`。
+
+## 原 1.0.1 变更
 
 - **菜单合并为单一入口**：三个分页（设置／衰减与清洗／状态与维护）合并为“体液覆盖/设置”，同页分“覆盖层与效果”“衰减与清洗”“角色管理与运行状态”三个折叠分组，设置区共用“应用并保存”“仅应用”“撤销修改”，角色管理分组默认折叠。改动只涉及 `src/menu/Menu.cpp`、`src/menu/Menu.h`。
 - **框架兼容改成按导出检查**：`Runtime` 的依赖报告不再要求 `SKSEMenuFramework.dll` 文件版本恰为 `3.10.0.0`，改用 `Menu::available()` 探测插件实际使用的菜单导出，版本号只写入日志与报告文本（`expected` 字段变为 `required menu exports`）。框架版本与界面布局不同的安装不再被误判为不兼容。
@@ -65,7 +77,7 @@ xmake build -y "SLACS2 NG"
 ## 测试
 
 ```powershell
-foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7_checks","slacs_s5_persistence_checks","slacs_s8_checks","slacs_s9_checks") {
+foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7_checks","slacs_s5_persistence_checks","slacs_s8_checks","slacs_s9_checks","slacs_overlay_checks","slacs_effects_checks","slacs_pplus_checks") {
   xmake build -y $t
   & "build/windows/x64/release/$t.exe"
 }
@@ -77,7 +89,7 @@ foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7
 py tools/release.py
 ```
 
-输出 `artifacts/SLACS2NG-1.0.0/`、同名 `.zip` 与 `FILE-MANIFEST.json/.txt`。1.0.0 包为 1,281,040,549 字节、276 个条目（274 个文件、264 张 DDS），SHA-256 `337d2a495e4cf14ccbacfbfac53dcbd27ccf329dd35fc21e617deb03401a78f6`。
+本次输出 `artifacts/SLACS2NG-1.0.2/`、同名 `.zip` 与 `FILE-MANIFEST.json/.txt`。不带日期的旧产物是此前构建，不包含本次修复。
 
 ## 安装
 

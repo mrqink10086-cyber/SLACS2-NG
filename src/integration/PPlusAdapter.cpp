@@ -1,4 +1,5 @@
 #include "integration/PPlusAdapter.h"
+#include "integration/PPlusMapping.h"
 
 #include <RE/Skyrim.h>
 
@@ -719,64 +720,22 @@ namespace slacs
 				continue;
 			}
 
-			const bool tagVaginal = state.tags[TagVaginal] || state.tags[TagPussy];
-			const bool tagOral = state.tags[TagOral] || state.tags[TagBlowjob];
-			const bool tagAnal = state.tags[TagAnal];
-			const bool tagBreast = state.tags[TagBoobjob] || state.tags[TagBreast];
-			const bool tagHand = state.tags[TagHandjob];
-			const bool tagFoot = state.tags[TagFootjob];
-			const bool tagTrib = state.tags[TagTribadism] || state.tags[TagRubbing];
-
-			// Directed interaction data is authoritative for this source/target
-			// pair. Stage tags are a fallback only when the pair has no directed
-			// interaction array; otherwise a whole-scene tag must not be
-			// broadcast to a participant that is not involved in that act.
+			const PPlusInteractionFlags stageTags{
+				.vaginal = state.tags[TagVaginal] || state.tags[TagPussy],
+				.anal = state.tags[TagAnal],
+				.oral = state.tags[TagOral] || state.tags[TagBlowjob],
+				.trib = state.tags[TagTribadism] || state.tags[TagRubbing],
+				.hand = state.tags[TagHandjob],
+				.foot = state.tags[TagFootjob],
+				.breast = state.tags[TagBoobjob] || state.tags[TagBreast],
+			};
 			const bool hasDirected = state.interactionRegistered &&
 				pair < state.interactions.size() && !state.interactions[pair].empty();
-			bool vaginal = tagVaginal;
-			bool anal = tagAnal;
-			bool oral = tagOral;
-			bool trib = tagTrib;
-			bool hand = tagHand;
-			bool foot = tagFoot;
-			bool breast = tagBreast;
-			if (hasDirected) {
-				vaginal = false;
-				anal = false;
-				oral = false;
-				trib = false;
-				hand = false;
-				foot = false;
-				breast = false;
-				for (const auto type : state.interactions[pair]) {
-					switch (type) {
-					case 1: // CTYPE_Vaginal
-						vaginal = true;
-						break;
-					case 2: // CTYPE_Anal
-						anal = true;
-						break;
-					case 3: // CTYPE_Oral
-					case 5: // CTYPE_Deepthroat
-					case 6: // CTYPE_Skullfuck
-					case 7: // CTYPE_LickingShaft
-					case 11: // CTYPE_Facial
-						oral = true;
-						break;
-					case 4: // CTYPE_Grinding
-						trib = true;
-						break;
-					case 8: // CTYPE_FootJob
-						foot = true;
-						break;
-					case 9: // CTYPE_HandJob
-						hand = true;
-						break;
-					default:
-						break;
-					}
-				}
-			}
+			const auto [vaginal, anal, oral, trib, hand, foot, breast] = ResolvePPlusInteractions(
+				stageTags,
+				hasDirected ? std::span<const std::int32_t>(state.interactions[pair]) : std::span<const std::int32_t>{},
+				hasDirected,
+				state.positions.size() == 2);
 
 			std::array<bool, kRegionCount> regionFlags{};
 			if (maleSource) {

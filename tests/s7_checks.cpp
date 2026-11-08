@@ -386,6 +386,15 @@ namespace
 		auto feetTooLate = Settings{};
 		feetTooLate.firstOwnedSlot[3] = 250;
 		Expect(!Settings::validate(feetTooLate).valid, "feet range past slot 250 rejected", __LINE__);
+		constexpr std::array<unsigned, 4> lastValidStart{ 107, 121, 125, 125 };
+		for (std::size_t domain = 0; domain < lastValidStart.size(); ++domain) {
+			for (unsigned start = 0; start <= 255; ++start) {
+				auto candidate = Settings{};
+				candidate.firstOwnedSlot[domain] = static_cast<std::uint8_t>(start);
+				Expect(Settings::validate(candidate).valid == (start <= lastValidStart[domain]),
+					"slot validation respects RaceMenu's 127-slot limit for every byte value", __LINE__);
+			}
+		}
 
 		// The body domain is the only one whose four profiles share a node
 		// namespace; adjacency must remain exact after shifting the base.

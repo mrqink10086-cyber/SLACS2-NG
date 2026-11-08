@@ -285,6 +285,21 @@ namespace slacs
 			return failure(a_target.actor, a_target.region, a_target.revision, OverlayStatus::StaleRevision, OverlayErrorCode::StaleRevision);
 		}
 
+		const auto domainIndex = static_cast<std::size_t>(profile.domain);
+		const auto domainBit = static_cast<std::uint8_t>(1U << domainIndex);
+		auto& restored = restoredDomains_[a_target.actor];
+		if ((restored & domainBit) == 0) {
+			// RaceMenu co-saves can restore slots outside today's global settings.
+			// Sweep once per domain so later Body regions retain earlier projections.
+			constexpr std::array cleanupRegions{ Region::BodyVaginal, Region::Face, Region::Hands, Region::Feet };
+			bool removed = false;
+			for (std::uint32_t slot = 0; slot < configured; ++slot) {
+				removed |= resetSlotIfOurs(reference, female, nodeNameForSlot(format, static_cast<std::uint8_t>(slot)), cleanupRegions[domainIndex]);
+			}
+			if (removed) overrideApi->SetNodeProperties(reference, true);
+			restored |= domainBit;
+		}
+
 		if (!a_settings.overlaysEnabled) {
 			bool removed = false;
 			if (cached != applied_.end()) {
@@ -369,8 +384,8 @@ namespace slacs
 					const auto slot = static_cast<std::uint8_t>(firstSlot + slotIndex);
 					const auto node = nodeNameForSlot(format, slot);
 					const auto* prior = priorForSlot(slot);
-					const bool usable = prior ?
-						priorSlotStillOurs(reference, female, node, *prior, a_target.region) :
+					const bool usable =
+						(prior && priorSlotStillOurs(reference, female, node, *prior, a_target.region)) ||
 						slotAppearsFree(reference, female, node, a_target.region);
 					if (!usable) {
 						continue;
@@ -495,6 +510,7 @@ namespace slacs
 		}
 		if (a_reason == VisualInvalidation::Actor3DRebuilt || a_reason == VisualInvalidation::CellChanged) {
 			initializedActors_.erase(a_actor);
+			restoredDomains_.erase(a_actor);
 		}
 		logs::debug("Overlay projection invalidated for actor {} (reason {})", a_actor, static_cast<int>(a_reason));
 	}
@@ -532,6 +548,7 @@ namespace slacs
 			it = applied_.erase(it);
 		}
 		initializedActors_.erase(a_actorId);
+		restoredDomains_.erase(a_actorId);
 		if (changed) {
 			overrideApi->SetNodeProperties(reference, true);
 		}
@@ -547,12 +564,14 @@ namespace slacs
 			}
 		}
 		initializedActors_.erase(a_actorId);
+		restoredDomains_.erase(a_actorId);
 	}
 
 	void OverlayAdapter::clearSession(SessionEpoch)
 	{
 		applied_.clear();
 		initializedActors_.clear();
+		restoredDomains_.clear();
 	}
 
 	bool OverlayAdapter::resetSlotIfOurs(RE::TESObjectREFR* a_reference, bool a_female, const std::string& a_node, Region a_region)
@@ -591,41 +610,40 @@ namespace slacs
 		auto* overrideApi = static_cast<::IOverrideInterface*>(api_.overrideApi());
 		const auto& profile = ProfileFor(a_region);
 		std::string current;
-		if (readDiffuse(a_reference, a_female, a_node, current) && !current.empty() &&
-			!isOurTexture(current) && !isDefaultTexture(current) &&
-			!equalsIgnoreCase(current, a_slot.diffuse)) {
-			// Another mod owns the diffuse in this slot. Do not overwrite it,
-			// but still remove the material maps that belong to us so they do
-			// not keep affecting the foreign material.
-			std::string normal;
-			if (profile.hasNormal && !a_slot.normal.empty() &&
-				readTexture(a_reference, a_female, a_node, kTextureNormalIndex, normal) &&
-				equalsIgnoreCase(normal, a_slot.normal)) {
-				clearTexture(a_reference, a_female, a_node, kTextureNormalIndex);
-			}
-			std::string specular;
-			if (profile.hasSpecular && !a_slot.specular.empty() &&
-				readTexture(a_reference, a_female, a_node, kTextureSpecularIndex, specular) &&
-				equalsIgnoreCase(specular, a_slot.specular)) {
-				clearTexture(a_reference, a_female, a_node, kTextureSpecularIndex);
-			}
+		const bool differentDiffuse = readDiffuse(a_reference, a_female, a_node, current) && !current.empty() &&
+			!isDefaultTexture(current) &&
+			!equalsIgnoreCase(current, a_slot.diffuse);
+		if (differentDiffuse && isOurTexture(current)) {
 			return;
 		}
 
-		// RaceMenu's RemoveNodeOverride only erases the map entry; it does not
-		// restore the shader material. Write the legacy default texture and
-		// full opacity so the slot is visually empty, and clear the optional
-		// material maps that would otherwise remain on this node.
-		StringVariant diffuse(kDefaultDiffuse);
-		overrideApi->AddNodeOverride(a_reference, a_female, a_node.c_str(), kShaderTextureKey, kTextureDiffuseIndex, diffuse);
+		// RaceMenu/skee64/OverrideInterface.cpp::RemoveNodeOverride only erases
+		// the map entry; reset owned values explicitly to restore the material.
+		if (!differentDiffuse && !current.empty() && !isDefaultTexture(current)) {
+			StringVariant diffuse(kDefaultDiffuse);
+			overrideApi->AddNodeOverride(a_reference, a_female, a_node.c_str(), kShaderTextureKey, kTextureDiffuseIndex, diffuse);
+		}
+		const auto clearOwnedMap = [&](std::uint8_t a_index, const std::string& a_cached) {
+			std::string live;
+			if (readTexture(a_reference, a_female, a_node, a_index, live) && !live.empty() &&
+				((!a_cached.empty() && equalsIgnoreCase(live, a_cached)) || (!differentDiffuse && isOurTexture(live)))) {
+				clearTexture(a_reference, a_female, a_node, a_index);
+			}
+		};
 		if (profile.hasNormal) {
-			clearTexture(a_reference, a_female, a_node, kTextureNormalIndex);
+			clearOwnedMap(kTextureNormalIndex, a_slot.normal);
 		}
 		if (profile.hasSpecular) {
-			clearTexture(a_reference, a_female, a_node, kTextureSpecularIndex);
+			clearOwnedMap(kTextureSpecularIndex, a_slot.specular);
 		}
-		FloatVariant alpha(1.0F);
-		overrideApi->AddNodeOverride(a_reference, a_female, a_node.c_str(), kShaderAlphaKey, kAlphaIndex, alpha);
+		if (a_slot.hasAlpha) {
+			FloatReader alpha;
+			if (overrideApi->GetNodeOverride(a_reference, a_female, a_node.c_str(), kShaderAlphaKey, kAlphaIndex, alpha) &&
+				alpha.present && alpha.value == a_slot.alpha) {
+				FloatVariant opaque(1.0F);
+				overrideApi->AddNodeOverride(a_reference, a_female, a_node.c_str(), kShaderAlphaKey, kAlphaIndex, opaque);
+			}
+		}
 	}
 
 	bool OverlayAdapter::readTexture(
@@ -711,11 +729,6 @@ namespace slacs
 		std::string specular;
 		if (profile.hasSpecular &&
 			readTexture(a_reference, a_female, a_node, kTextureSpecularIndex, specular) && !specular.empty()) {
-			return false;
-		}
-		FloatReader alpha;
-		if (overrideApi->GetNodeOverride(a_reference, a_female, a_node.c_str(), kShaderAlphaKey, kAlphaIndex, alpha) &&
-			alpha.present && alpha.value < 0.99F) {
 			return false;
 		}
 		return true;
