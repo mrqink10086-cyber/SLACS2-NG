@@ -1,12 +1,20 @@
-# SLACS2 NG 1.0.2 发布说明
+# SLACS2 NG 1.0.3 发布说明
 
 首发日期：2026-11-06（1.0.0）／更新：2026-11-07（1.0.1）
-本次修复构建：2026-11-08，版本号 1.0.2，包名 `SLACS2NG-1.0.2`。
+本次构建：2026-11-10，版本号 1.0.3，包名 `SLACS2NG-1.0.3`。
 交付状态：**构建完成，待游戏验收**
 
 SLACS 2 的 C++ 重写版本。原本由 Papyrus、StorageUtil、JContainers、PO3 承担的体液层状态迁到 SKSE64 插件，Papyrus 只保留转发 P+ 事件的薄桥。ESP 身份沿用原 `SLACS_2_Plus_SCO.esp`，状态按新档设计（版本化 co-save，不读取旧 Papyrus 存档数据）。只支持 Skyrim SE 1.6.1170。
 
-## 2026-11-08 修复构建
+## 2026-11-10 自动槽位与重试限频
+
+- 直接采用 RaceMenu 从 INI 加载的实际容量，自动扫描空槽与自有槽。Body 四区域共享身体池，每区域可显示最多五层；保留其他模组占用。
+- 移除手动起始槽设置，菜单显示 RaceMenu 实际总容量。旧 JSON 的 `firstOwnedSlot` 兼容读取并忽略，保存时移除；co-save 格式不变。
+- 角色列表补入当前存活且已加载 3D 的随从。按队友状态识别，并排除受命令角色、儿童与生物，规则参考 devious-curses。
+- 覆盖层和效果失败按每项两秒冷却；冷却项不会触发 25ms 积压轮询。暂停时取消未完成环境扫描，恢复后重新采样。
+- 完整显示所有图层需要 Body/Face/Hands/Feet 各有 20/5/5/5 个空闲槽；INI 设置见[安装说明](../../package/README.zh-CN.md#racemenu-必须调整的设置)。修改 INI 后重启游戏。
+
+## 2026-11-08 修复构建（1.0.2）
 
 - 空槽只有残留透明度时可正常复用，不再因此只应用一层。
 - 修改起始槽时保留其他区域刚迁入的精痕；读档后也会清理旧全局配置范围外的 SLACS 精痕。
@@ -29,7 +37,7 @@ SLACS 2 的 C++ 重写版本。原本由 Papyrus、StorageUtil、JContainers、P
 - **唯一自动加层入口**：只挂 P+ 的 `SexlabOrgasmSeparate`，`SLACS_Main` 把 `(sourceActor, tid)` 交给 native；`HookAnimationStart/End` 只维护过程上下文。
 - **衰减与清洗**：自然衰减补算睡眠、等待、快速旅行经过的游戏时间；雨水只累计已观测到的室外降雨；游泳立即清洗；120 活动秒整体清洗（可关），暂停/菜单冻结期间不累计，32 位 `runTimeMS` 回绕已处理。
 - **26 个效果组合**：口腔 × 阴道 × 肛门 × 等级（0/1/2），FormID 从 ESP 解析，索引 0 为关闭占位。
-- **RaceMenu 覆盖层**：直接调用 `skee64` 的 C++ 接口，按自有槽位前缀写入（Body 7..26、Face 7..12、Hands/Feet 7..8），不占用其他模组的槽位；槽位不足返回 `NoOwnedCapacity`，逻辑层保留并周期重试。Body 写 diffuse + normal + specular，Face 只写 normal。
+- **RaceMenu 覆盖层**：直接调用 `skee64` 的 C++ 接口，采用实际 INI 容量并自动分配空槽；槽位不足保留逻辑层并限频重试。Body 写 diffuse + normal + specular，Face 写 diffuse + normal。
 - **中文设置菜单**：单一“体液覆盖/设置”入口，覆盖层、衰减清洗、角色管理在同页分组展开，统一应用或保存。全局配置跨存档共用；菜单只读运行时快照并提交值命令，动作携带会话 epoch，换档后旧动作被拒绝。框架兼容性按所需导出检查，不再锁定 DLL 文件版本；缺失框架或所需导出时会记录依赖错误并停止初始化。
 - **配置与存档**：`Data/SKSE/Plugins/SLACS2NG.json`，UTF-8，schemaVersion 1，临时文件写盘后可回滚；非法值/未知字段/枚举错误按中文字段说明拒绝，`SettingsFeedback` 分别报告应用与写盘状态。角色层、衰减余量与整体清除剩余时间存在版本化 co-save；读档不覆盖全局配置。
 - **诊断**：每 60 秒输出一行 `Perf`（actor 数、环境采样、覆盖层提交、槽位、pump 次数与平均/最大耗时、队列峰值、P+ 请求延迟）。
@@ -89,13 +97,13 @@ foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7
 py tools/release.py
 ```
 
-本次输出 `artifacts/SLACS2NG-1.0.2/`、同名 `.zip` 与 `FILE-MANIFEST.json/.txt`。不带日期的旧产物是此前构建，不包含本次修复。
+本次输出 `artifacts/SLACS2NG-1.0.3/`、同名 `.zip` 与 `FILE-MANIFEST.json/.txt`。旧版本产物保持为历史构建。
 
 ## 安装
 
 1. 安装上述 1170 依赖组合。
 2. 将 `Data` 合并到游戏目录；启用 `SLACS_2_Plus_SCO.esp`。
-3. 调整 `Data/SKSE/Plugins/skee64.ini`：Body/Face/Hands/Feet 至少 27/13/9/9（RaceMenu 按 `i < iNumOverlays` 遍历），`bPlayerOnly=0`。
+3. 按[安装说明](../../package/README.zh-CN.md#racemenu-必须调整的设置)调整 `skee64.ini`；插件自动使用实际容量，无需填写起始槽。
 4. 进入游戏按 F1，打开“体液覆盖/设置”，在同页展开分组并调整设置。
 
 配置路径：`Data/SKSE/Plugins/SLACS2NG.json`。读取存档不会覆盖该全局文件；每个存档的角色状态在 co-save。

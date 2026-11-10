@@ -21,6 +21,7 @@ namespace slacs
 		// Face index 2 is a FaceGen slot and must not be touched.
 		constexpr std::uint8_t kTextureSpecularIndex = 2;
 		constexpr std::uint8_t kAlphaIndex = 0xFF;
+		constexpr std::uint32_t kMaxOverlayCount = 127;
 		constexpr const char* kDefaultDiffuse = "textures\\actors\\character\\overlays\\default.dds";
 
 		struct RegionProfile
@@ -31,18 +32,16 @@ namespace slacs
 			bool hasNormal;
 			bool hasSpecular;
 			OverlayDomain domain;
-			std::uint16_t slotOffset;
-			std::uint16_t slotCount;
 		};
 
 		constexpr std::array<RegionProfile, kRegionCount> kRegionProfiles{ {
-			{ "Vaginal", "body", 12, true, true, OverlayDomain::Body, 0, 6 },
-			{ "Anal", "body", 12, true, true, OverlayDomain::Body, 6, 6 },
-			{ "Breast", "chest", 12, true, true, OverlayDomain::Body, 12, 6 },
-			{ "Footjob", "legs", 4, false, false, OverlayDomain::Body, 18, 2 },
-			{ "Oral", "head", 12, true, false, OverlayDomain::Face, 0, 6 },
-			{ "Handjob", "hands", 4, false, false, OverlayDomain::Hands, 0, 2 },
-			{ "Footjob", "feet", 4, false, false, OverlayDomain::Feet, 0, 2 },
+			{ "Vaginal", "body", 12, true, true, OverlayDomain::Body },
+			{ "Anal", "body", 12, true, true, OverlayDomain::Body },
+			{ "Breast", "chest", 12, true, true, OverlayDomain::Body },
+			{ "Footjob", "legs", 4, false, false, OverlayDomain::Body },
+			{ "Oral", "head", 12, true, false, OverlayDomain::Face },
+			{ "Handjob", "hands", 4, false, false, OverlayDomain::Hands },
+			{ "Footjob", "feet", 4, false, false, OverlayDomain::Feet },
 		} };
 
 		// The UBE profile is intentionally not listed here. The legacy UBE
@@ -81,6 +80,16 @@ namespace slacs
 				return ::IOverlayInterface::OverlayLocation::Feet;
 			}
 			return ::IOverlayInterface::OverlayLocation::Body;
+		}
+
+		std::uint32_t OverlayCount(::IOverlayInterface* a_overlay, OverlayDomain a_domain)
+		{
+			if (!a_overlay) {
+				return 0;
+			}
+			return std::min<std::uint32_t>(
+				a_overlay->GetOverlayCount(::IOverlayInterface::OverlayType::Normal, LocationFor(a_domain)),
+				kMaxOverlayCount);
 		}
 
 		class StringVariant final : public ::IOverrideInterface::SetVariant
@@ -223,6 +232,20 @@ namespace slacs
 		return api_.available();
 	}
 
+	std::array<std::uint32_t, 4> OverlayAdapter::capacities() const
+	{
+		if (!api_.available()) {
+			return {};
+		}
+		auto* overlay = static_cast<::IOverlayInterface*>(api_.overlay());
+		return {
+			OverlayCount(overlay, OverlayDomain::Body),
+			OverlayCount(overlay, OverlayDomain::Face),
+			OverlayCount(overlay, OverlayDomain::Hands),
+			OverlayCount(overlay, OverlayDomain::Feet),
+		};
+	}
+
 	void OverlayAdapter::installCallback(RE::TESObjectREFR* a_reference, RE::NiAVObject*)
 	{
 		auto* self = g_active.load(std::memory_order_acquire);
@@ -270,20 +293,33 @@ namespace slacs
 		}
 		const std::string format = formatRaw;
 
-		const auto configured = overlay->GetOverlayCount(
-			::IOverlayInterface::OverlayType::Normal,
-			location);
-		const auto range = OverlaySlotsForRegion(a_settings, a_target.region);
-		const auto firstSlot = range.firstSlot;
-		const std::size_t availableSlots = configured > firstSlot ?
-			std::min<std::size_t>(range.slotCount, configured - firstSlot) :
-			0;
+		const auto configured = OverlayCount(overlay, profile.domain);
+		const std::size_t availableSlots = configured;
 
 		const std::uint64_t key = (a_target.actor << 3) | static_cast<std::uint64_t>(RegionIndex(a_target.region));
 		const auto cached = applied_.find(key);
 		if (cached != applied_.end() && a_target.revision < cached->second.revision) {
 			return failure(a_target.actor, a_target.region, a_target.revision, OverlayStatus::StaleRevision, OverlayErrorCode::StaleRevision);
 		}
+
+		const auto isReservedByOtherRegion = [&](std::uint8_t a_slot) {
+			for (const auto& [otherKey, otherRegion] : applied_) {
+				if (otherKey == key || static_cast<ActorId>(otherKey >> 3) != a_target.actor) {
+					continue;
+				}
+				const auto otherRegionIndex = static_cast<std::size_t>(otherKey & 0x7);
+				if (otherRegionIndex >= kRegionCount ||
+					ProfileFor(static_cast<Region>(otherRegionIndex)).domain != profile.domain) {
+					continue;
+				}
+				if (std::any_of(otherRegion.slots.begin(), otherRegion.slots.end(), [&](const AppliedSlot& a_owned) {
+						return a_owned.slot == a_slot;
+					})) {
+					return true;
+				}
+			}
+			return false;
+		};
 
 		const auto domainIndex = static_cast<std::size_t>(profile.domain);
 		const auto domainBit = static_cast<std::uint8_t>(1U << domainIndex);
@@ -310,7 +346,10 @@ namespace slacs
 				applied_.erase(cached);
 			}
 			for (std::size_t slotIndex = 0; slotIndex < availableSlots; ++slotIndex) {
-				const auto slot = static_cast<std::uint8_t>(firstSlot + slotIndex);
+				const auto slot = static_cast<std::uint8_t>(slotIndex);
+				if (isReservedByOtherRegion(slot)) {
+					continue;
+				}
 				if (resetSlotIfOurs(reference, female, nodeNameForSlot(format, slot), a_target.region)) {
 					removed = true;
 				}
@@ -326,13 +365,12 @@ namespace slacs
 		bool partial = false;
 
 		if (!a_target.layers.empty()) {
-			if (availableSlots == 0) {
-				return failure(a_target.actor, a_target.region, a_target.revision, OverlayStatus::NoOwnedCapacity, OverlayErrorCode::NoOwnedSlot);
-			}
-
 			std::vector<bool> usedSlot(availableSlots, false);
 			std::vector<bool> assignedLayer(a_target.layers.size(), false);
 			const auto* previous = cached != applied_.end() ? &cached->second : nullptr;
+			for (std::size_t slotIndex = 0; slotIndex < availableSlots; ++slotIndex) {
+				usedSlot[slotIndex] = isReservedByOtherRegion(static_cast<std::uint8_t>(slotIndex));
+			}
 
 			const auto priorForSlot = [&](std::uint8_t a_slot) -> const AppliedSlot* {
 				if (!previous) {
@@ -356,10 +394,10 @@ namespace slacs
 				// in range, unused, and still ours.
 				if (previous) {
 					for (const auto& slot : previous->slots) {
-						if (slot.layerId != layer.layerId || slot.slot < firstSlot) {
+						if (slot.layerId != layer.layerId) {
 							continue;
 						}
-						const auto slotIndex = static_cast<std::size_t>(slot.slot - firstSlot);
+						const auto slotIndex = static_cast<std::size_t>(slot.slot);
 						if (slotIndex >= availableSlots || usedSlot[slotIndex]) {
 							continue;
 						}
@@ -381,7 +419,7 @@ namespace slacs
 					if (usedSlot[slotIndex]) {
 						continue;
 					}
-					const auto slot = static_cast<std::uint8_t>(firstSlot + slotIndex);
+					const auto slot = static_cast<std::uint8_t>(slotIndex);
 					const auto node = nodeNameForSlot(format, slot);
 					const auto* prior = priorForSlot(slot);
 					const bool usable =
@@ -401,15 +439,22 @@ namespace slacs
 				}
 			}
 
-			if (assignments.empty()) {
-				return failure(a_target.actor, a_target.region, a_target.revision, OverlayStatus::NoOwnedCapacity, OverlayErrorCode::NoOwnedSlot);
-			}
 		}
 
 		const float opacity = std::clamp(a_settings.overlayOpacity, 0.0F, 1.0F);
 		const auto signature = makeSignature(a_target, assignments, format, opacity);
 		if (cached != applied_.end() && cached->second.revision == a_target.revision && cached->second.signature == signature) {
-			return failure(a_target.actor, a_target.region, a_target.revision, OverlayStatus::NoChange, OverlayErrorCode::None);
+			if (!partial) {
+				return failure(a_target.actor, a_target.region, a_target.revision, OverlayStatus::NoChange, OverlayErrorCode::None);
+			}
+			OverlayResult result;
+			result.status = OverlayStatus::NoOwnedCapacity;
+			result.actor = a_target.actor;
+			result.region = a_target.region;
+			result.revision = a_target.revision;
+			result.slotsApplied = static_cast<std::uint32_t>(assignments.size());
+			result.error = OverlayErrorCode::NoOwnedSlot;
+			return result;
 		}
 
 		const auto initialized = initializedActors_.find(a_target.actor);
@@ -444,7 +489,10 @@ namespace slacs
 		// our old node overrides. Clear any slot whose diffuse still points at
 		// this plugin's texture but which the new logical state does not use.
 		for (std::size_t slotIndex = 0; slotIndex < availableSlots; ++slotIndex) {
-			const auto slot = static_cast<std::uint8_t>(firstSlot + slotIndex);
+			const auto slot = static_cast<std::uint8_t>(slotIndex);
+			if (isReservedByOtherRegion(slot)) {
+				continue;
+			}
 			const bool assigned = std::any_of(
 				assignments.begin(),
 				assignments.end(),
@@ -458,22 +506,21 @@ namespace slacs
 		}
 
 		AppliedRegion updated;
-		// A partial projection keeps revision 0 so the next pump retries the
-		// layers that did not fit once slots become available.
-		updated.revision = partial ? 0 : a_target.revision;
+		updated.revision = a_target.revision;
 		updated.signature = signature;
 		updated.slots.reserve(assignments.size());
 
 		for (const auto& assignment : assignments) {
 			const auto node = nodeNameForSlot(format, assignment.slot);
 			AppliedSlot slot;
-			if (!applySlot(reference, female, node, *assignment.layer, slot, a_settings, a_target.region)) {
+			bool slotChanged = false;
+			if (!applySlot(reference, female, node, *assignment.layer, slot, slotChanged, a_settings, a_target.region)) {
 				return failure(a_target.actor, a_target.region, a_target.revision, OverlayStatus::Failed, OverlayErrorCode::ApiFailure);
 			}
 			slot.slot = assignment.slot;
 			slot.layerId = assignment.layer->layerId;
 			updated.slots.push_back(std::move(slot));
-			changed = true;
+			changed = changed || slotChanged;
 		}
 
 		if (changed) {
@@ -740,6 +787,7 @@ namespace slacs
 		const std::string& a_node,
 		const LayerVisual& a_layer,
 		AppliedSlot& a_slot,
+		bool& a_changed,
 		const Settings& a_settings,
 		Region a_region)
 	{
@@ -816,10 +864,16 @@ namespace slacs
 		}
 
 		const float opacity = std::clamp(a_settings.overlayOpacity, 0.0F, 1.0F);
-		FloatVariant alpha(opacity);
-		overrideApi->AddNodeOverride(a_reference, a_female, node, kShaderAlphaKey, kAlphaIndex, alpha);
+		FloatReader liveAlpha;
+		const bool hasAlpha = overrideApi->GetNodeOverride(a_reference, a_female, node, kShaderAlphaKey, kAlphaIndex, liveAlpha);
+		const bool alphaChanged = !hasAlpha || !liveAlpha.present || liveAlpha.value != opacity;
+		if (alphaChanged) {
+			FloatVariant alpha(opacity);
+			overrideApi->AddNodeOverride(a_reference, a_female, node, kShaderAlphaKey, kAlphaIndex, alpha);
+		}
 		a_slot.hasAlpha = true;
 		a_slot.alpha = opacity;
+		a_changed = textureChanged || alphaChanged;
 		return true;
 	}
 

@@ -1,4 +1,5 @@
 #include "integration/PPlusAdapter.h"
+#include "integration/Followers.h"
 #include "integration/PPlusMapping.h"
 
 #include <RE/Skyrim.h>
@@ -682,7 +683,7 @@ namespace slacs
 		bool sceneHasPlayerOrTeammate = false;
 		for (const auto formId : state.positions) {
 			if (auto* actor = LookupActor(formId)) {
-				if (actor == RE::PlayerCharacter::GetSingleton() || actor->IsPlayerTeammate()) {
+				if (actor == RE::PlayerCharacter::GetSingleton() || IsFollower(actor)) {
 					sceneHasPlayerOrTeammate = true;
 					break;
 				}
@@ -716,7 +717,7 @@ namespace slacs
 				continue;
 			}
 			if (femaleTarget && settings.femaleTargetsRequirePlayerOrFollower &&
-				targetActor != RE::PlayerCharacter::GetSingleton() && !targetActor->IsPlayerTeammate()) {
+				targetActor != RE::PlayerCharacter::GetSingleton() && !IsFollower(targetActor)) {
 				continue;
 			}
 

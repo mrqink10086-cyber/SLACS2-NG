@@ -73,19 +73,12 @@ namespace slacs
 	struct SettingsLoadResult;
 	struct SettingsSaveResult;
 
-	struct OverlaySlotRange
-	{
-		std::uint16_t firstSlot{};
-		std::uint16_t slotCount{};
-	};
-
 	struct Settings
 	{
 		bool naturalDecay{ true };
 		bool rainAccelerates{ true };
 		double decayIntervalGameHours{ 1.0 };
 		std::uint8_t maxLayersPerRegion{ 5 };
-		std::array<std::uint8_t, 4> firstOwnedSlot{ 7, 7, 7, 7 };
 		LayerRemovalOrder layerRemovalOrder{ LayerRemovalOrder::LegacyLifo };
 		SwimCleaningPolicy swimCleaning{ SwimCleaningPolicy::LegacyImmediateClear };
 		TimedClearMode timedClear{ TimedClearMode::Legacy120ActiveSeconds };
@@ -106,8 +99,6 @@ namespace slacs
 		static SettingsLoadResult load(const std::filesystem::path& a_path);
 		static SettingsSaveResult save(const std::filesystem::path& a_path, const Settings& a_value);
 	};
-
-	[[nodiscard]] OverlaySlotRange OverlaySlotsForRegion(const Settings& a_settings, Region a_region);
 
 	struct SettingsIssue
 	{

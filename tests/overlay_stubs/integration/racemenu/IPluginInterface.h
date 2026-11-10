@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/ActorRegistry.h"
+#include <array>
 #include <map>
 #include <string>
 #include <tuple>
@@ -13,8 +14,17 @@ class IOverlayInterface
 public:
 	enum class OverlayType { Normal, Spell };
 	enum class OverlayLocation { Body, Hand, Feet, Face };
-	unsigned count{ 40 };
-	unsigned GetOverlayCount(OverlayType, OverlayLocation) { return count; }
+	std::array<unsigned, 4> counts{ 6, 3, 3, 3 };
+	unsigned GetOverlayCount(OverlayType, OverlayLocation a_location)
+	{
+		switch (a_location) {
+		case OverlayLocation::Body: return counts[0];
+		case OverlayLocation::Hand: return counts[1];
+		case OverlayLocation::Feet: return counts[2];
+		case OverlayLocation::Face: return counts[3];
+		}
+		return 0;
+	}
 	const char* GetOverlayFormat(OverlayType, OverlayLocation a_location)
 	{
 		switch (a_location) {
@@ -51,6 +61,8 @@ public:
 	};
 	using Key = std::tuple<std::string, unsigned, unsigned>;
 	std::map<Key, std::variant<std::string, float>> data;
+	unsigned writes{};
+	unsigned setNodePropertiesCalls{};
 	bool HasNodeOverride(RE::TESObjectREFR*, bool, const char* a_node, std::uint16_t a_key, std::uint8_t a_index)
 	{
 		return data.contains({ a_node, a_key, a_index });
@@ -70,11 +82,12 @@ public:
 	}
 	void AddNodeOverride(RE::TESObjectREFR*, bool, const char* a_node, std::uint16_t a_key, std::uint8_t a_index, SetVariant& a_value)
 	{
+		++writes;
 		if (a_value.GetType() == SetVariant::Type::String) {
 			data[{ a_node, a_key, a_index }] = std::string(a_value.String());
 		} else {
 			data[{ a_node, a_key, a_index }] = a_value.Float();
 		}
 	}
-	void SetNodeProperties(RE::TESObjectREFR*, bool) {}
+	void SetNodeProperties(RE::TESObjectREFR*, bool) { ++setNodePropertiesCalls; }
 };

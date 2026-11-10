@@ -345,69 +345,6 @@ namespace
 		Expect(spell && spell->desired.combinationIndex == 0, "clear resets combination", __LINE__);
 	}
 
-	void CheckOverlaySlots()
-	{
-		using namespace slacs;
-
-		Settings settings{};
-		const auto vaginal = OverlaySlotsForRegion(settings, Region::BodyVaginal);
-		const auto anal = OverlaySlotsForRegion(settings, Region::BodyAnal);
-		const auto breast = OverlaySlotsForRegion(settings, Region::BodyBreast);
-		const auto legs = OverlaySlotsForRegion(settings, Region::BodyLegs);
-		const auto face = OverlaySlotsForRegion(settings, Region::Face);
-		const auto hands = OverlaySlotsForRegion(settings, Region::Hands);
-		const auto feet = OverlaySlotsForRegion(settings, Region::Feet);
-
-		Expect(vaginal.firstSlot == 7 && vaginal.slotCount == 6, "vaginal 7-12", __LINE__);
-		Expect(anal.firstSlot == 13 && anal.slotCount == 6, "anal 13-18", __LINE__);
-		Expect(breast.firstSlot == 19 && breast.slotCount == 6, "breast 19-24", __LINE__);
-		Expect(legs.firstSlot == 25 && legs.slotCount == 2, "legs 25-26", __LINE__);
-		Expect(face.firstSlot == 7 && face.slotCount == 6, "face 7-12", __LINE__);
-		Expect(hands.firstSlot == 7 && hands.slotCount == 2, "hands 7-8", __LINE__);
-		Expect(feet.firstSlot == 7 && feet.slotCount == 2, "feet 7-8", __LINE__);
-
-		// Visible capacity is independent of the five-layer logical capacity.
-		Expect(vaginal.slotCount == 6 && legs.slotCount == 2 && hands.slotCount == 2 && feet.slotCount == 2,
-			"fixed visible capacities", __LINE__);
-
-		auto valid = Settings{};
-		Expect(Settings::validate(valid).valid, "default slot layout valid", __LINE__);
-		valid.firstOwnedSlot = { 8, 8, 8, 8 };
-		Expect(Settings::validate(valid).valid, "shifted non-overlapping layout valid", __LINE__);
-		auto tooLate = Settings{};
-		tooLate.firstOwnedSlot[0] = 232;
-		Expect(!Settings::validate(tooLate).valid, "body range past slot 250 rejected", __LINE__);
-		auto faceTooLate = Settings{};
-		faceTooLate.firstOwnedSlot[1] = 246;
-		Expect(!Settings::validate(faceTooLate).valid, "face range past slot 250 rejected", __LINE__);
-		auto handsTooLate = Settings{};
-		handsTooLate.firstOwnedSlot[2] = 250;
-		Expect(!Settings::validate(handsTooLate).valid, "hands range past slot 250 rejected", __LINE__);
-		auto feetTooLate = Settings{};
-		feetTooLate.firstOwnedSlot[3] = 250;
-		Expect(!Settings::validate(feetTooLate).valid, "feet range past slot 250 rejected", __LINE__);
-		constexpr std::array<unsigned, 4> lastValidStart{ 107, 121, 125, 125 };
-		for (std::size_t domain = 0; domain < lastValidStart.size(); ++domain) {
-			for (unsigned start = 0; start <= 255; ++start) {
-				auto candidate = Settings{};
-				candidate.firstOwnedSlot[domain] = static_cast<std::uint8_t>(start);
-				Expect(Settings::validate(candidate).valid == (start <= lastValidStart[domain]),
-					"slot validation respects RaceMenu's 127-slot limit for every byte value", __LINE__);
-			}
-		}
-
-		// The body domain is the only one whose four profiles share a node
-		// namespace; adjacency must remain exact after shifting the base.
-		auto shifted = Settings{};
-		shifted.firstOwnedSlot[0] = 20;
-		const auto shiftedVaginal = OverlaySlotsForRegion(shifted, Region::BodyVaginal);
-		const auto shiftedAnal = OverlaySlotsForRegion(shifted, Region::BodyAnal);
-		const auto shiftedBreast = OverlaySlotsForRegion(shifted, Region::BodyBreast);
-		const auto shiftedLegs = OverlaySlotsForRegion(shifted, Region::BodyLegs);
-		Expect(shiftedVaginal.firstSlot == 20 && shiftedAnal.firstSlot == 26 &&
-			shiftedBreast.firstSlot == 32 && shiftedLegs.firstSlot == 38,
-			"body sub-ranges keep +0/+6/+12/+18 offsets", __LINE__);
-	}
 }
 
 int main()
@@ -416,7 +353,6 @@ int main()
 	CheckSwimmingClearsAll();
 	CheckRainBudget();
 	CheckSpellCombinations();
-	CheckOverlaySlots();
 
 	if (g_failures == 0) {
 		std::cout << "SLACS2 NG S7 checks passed\n";

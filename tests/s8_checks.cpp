@@ -19,6 +19,24 @@ namespace
 		}
 	}
 
+	void TestLegacySlotMigration()
+	{
+		const auto path = std::filesystem::path("slacs2ng_legacy_slots.json");
+		{
+			std::ofstream file(path, std::ios::binary | std::ios::trunc);
+			file << R"({"schemaVersion":1,"firstOwnedSlot":[27,13,9,9],"overlayOpacity":0.6})";
+		}
+		const auto loaded = slacs::Settings::load(path);
+		Check(loaded.status == slacs::SettingsLoadStatus::Loaded, "legacy manual slots do not prevent loading settings");
+		Check(loaded.value.overlayOpacity == 0.6F, "legacy migration preserves other settings");
+		Check(slacs::Settings::save(path, loaded.value).status == slacs::SettingsSaveStatus::Saved, "legacy settings can be saved");
+		std::ifstream file(path, std::ios::binary);
+		const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+		Check(text.find("firstOwnedSlot") == std::string::npos, "saving migrates away from manual slot indices");
+		file.close();
+		std::filesystem::remove(path);
+	}
+
 	void TestSettingsRoundTrip()
 	{
 		const auto path = std::filesystem::path("slacs2ng_s8_settings.json");
@@ -29,7 +47,6 @@ namespace
 		custom.overlayOpacity = 0.42F;
 		custom.megaCumForAll = true;
 		custom.timedClear = slacs::TimedClearMode::Disabled;
-		custom.firstOwnedSlot = { 11, 21, 31, 41 };
 		custom.enabledSourceClasses = { true, false, true, false, false, true };
 
 		const auto saved = slacs::Settings::save(path, custom);
@@ -41,7 +58,6 @@ namespace
 		Check(loaded.status == slacs::SettingsLoadStatus::Loaded, "saved settings should load");
 		Check(loaded.value == custom, "all settings round-trip");
 		Check(loaded.value.overlayOpacity == 0.42F, "opacity round-trips");
-		Check(loaded.value.firstOwnedSlot[3] == 41, "slot array round-trips");
 
 		auto bomPath = std::filesystem::path("slacs2ng_s8_bom.json");
 		{
@@ -157,6 +173,7 @@ namespace
 
 int main()
 {
+	TestLegacySlotMigration();
 	TestSettingsRoundTrip();
 	TestSettingsDiff();
 	TestMenuState();

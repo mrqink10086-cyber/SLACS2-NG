@@ -7,7 +7,7 @@ SLACS2 NG 是 SLACS 2 的原生 C++ 重写：把原来由 Papyrus、StorageUtil�
 - 菜单改用 SKSE Menu Framework，单一入口、同页分组的全中文界面。
 - 面向新档设计，存档格式为版本化 co-save；全局配置在 `Data/SKSE/Plugins/SLACS2NG.json`。
 
-当前版本 **1.0.1**。DLL 与发布包均已构建，七组宿主检查全部通过；**尚未在游戏内验收**，详见下方“验证状态”。
+当前版本 **1.0.3**。本版自动使用 RaceMenu 实际加载的槽位容量，角色列表包含当前已加载的随从，并为失败重试加入限频。**尚未在游戏内验收**，详见下方“验证状态”。
 
 ## 功能
 
@@ -15,7 +15,7 @@ SLACS2 NG 是 SLACS 2 的原生 C++ 重写：把原来由 Papyrus、StorageUtil�
 - **唯一自动加层入口**：P+ 的 `SexlabOrgasmSeparate`，经 `SLACS_Main` 薄桥把 `(sourceActor, tid)` 交给 native；`HookAnimationStart/End` 只维护过程上下文。
 - **衰减与清洗**：自然衰减补算睡眠、等待、快速旅行经过的游戏时间；雨水只累计已观测到的室外降雨；游泳立即清洗；120 活动秒整体清洗（暂停/菜单冻结期间不累计）。
 - **26 个效果组合**：口腔 × 阴道 × 肛门 × 等级（0/1/2），FormID 从 ESP 解析，索引 0 为关闭占位。
-- **RaceMenu 覆盖层**：直接调用 `skee64` 的 C++ 接口，按自有槽位前缀写入，不占用其他模组的槽位；槽位不足时逻辑层保留并周期重试。
+- **RaceMenu 覆盖层**：通过 `skee64` 接口读取实际加载的 INI 容量，自动分配空槽与本插件已有槽，保留其他模组占用；槽位不足时保留逻辑层并限频重试。
 - **中文设置菜单**：打开“体液覆盖/设置”，在同页展开覆盖层、衰减清洗及角色管理分组，统一应用或保存。配置跨存档共用；菜单只读运行时快照并提交值命令，动作携带会话 epoch，换档后旧动作被拒绝。
 - **诊断**：每 60 秒输出一行 `Perf` 统计（actor 数、环境采样、覆盖层提交、pump 耗时、队列深度、P+ 请求延迟）。
 
@@ -30,7 +30,7 @@ SLACS2 NG 是 SLACS 2 的原生 C++ 重写：把原来由 Papyrus、StorageUtil�
 | SKSE Menu Framework | 提供本插件所需菜单导出的兼容版本，不锁定 DLL 文件版本 |
 | SkyUI | `SkyUI_SE.esp`（ESP 主文件要求） |
 
-RaceMenu 需要手动调整 `Data/SKSE/Plugins/skee64.ini` 的覆盖层槽位（默认 6/3/3/3 放不下七个区域）并把 `bPlayerOnly` 设为 0，具体数值见 [package/README.zh-CN.md](package/README.zh-CN.md)。
+RaceMenu 的 `Data/SKSE/Plugins/skee64.ini` 决定可用容量；插件直接采用 RaceMenu 已加载的值，无需填写起始槽。完整显示七区域各五层所需的空闲容量和 INI 设置见 [安装说明](package/README.zh-CN.md#racemenu-必须调整的设置)。
 
 ## 构建
 
@@ -49,7 +49,9 @@ xmake build -y "SLACS2 NG"
 
 ```powershell
 foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7_checks",
-               "slacs_s5_persistence_checks","slacs_s8_checks","slacs_s9_checks") {
+               "slacs_s5_persistence_checks","slacs_s8_checks","slacs_s9_checks",
+               "slacs_overlay_checks","slacs_effects_checks","slacs_pplus_checks",
+               "slacs_followers_checks","slacs_retry_schedule_checks") {
   xmake build -y $t
   & "build/windows/x64/release/$t.exe"
 }
@@ -58,14 +60,16 @@ foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7
 发布产物：
 
 ```powershell
-py tools/release.py        # -> artifacts/SLACS2NG-1.0.1/ 与同名 .zip + FILE-MANIFEST
+py tools/release.py
 ```
+
+输出为 `artifacts/SLACS2NG-1.0.3/`、同名 ZIP 和文件清单。
 
 ## 安装
 
 1. 备齐上表依赖，确认游戏为 1.6.1170。
 2. 把发布包内 `Data/` 合并到游戏 `Data/`，启用 `SLACS_2_Plus_SCO.esp`。
-3. 修改 `skee64.ini`：Body/Face/Hands/Feet 至少 27/13/9/9，`bPlayerOnly=0`。
+3. 按[安装说明](package/README.zh-CN.md#racemenu-必须调整的设置)设置 `skee64.ini` 并重启游戏；菜单会显示 RaceMenu 实际容量。
 4. 进游戏按 F1 打开菜单。
 
 完整步骤、配置语义、菜单说明与已知限制见 [package/README.zh-CN.md](package/README.zh-CN.md)。
@@ -80,7 +84,7 @@ src/papyrus      native 绑定与 P+ 事件桥
 src/integration  P+ 适配、RaceMenu 覆盖层、效果、3D/引擎查询
 src/menu         快照发布与同页分组菜单
 src/persistence  co-save 编解码
-tests            七组宿主检查
+tests            十二组宿主检查
 tools            package.py / release.py / clean_esp.py / verify_*.py
 docs             PLAN、INTERFACES、SESSION-01..05、AUDIT、RELEASE-NOTES
 ```
@@ -98,8 +102,8 @@ docs             PLAN、INTERFACES、SESSION-01..05、AUDIT、RELEASE-NOTES
 | 项目 | 状态 |
 | --- | --- |
 | DLL / PEX / ESP / 264 贴图 / 字体 / 菜单资源构建 | 构建完成，`tools/package.py` 全部校验通过 |
-| 七组宿主检查（逻辑、调度、序列化、菜单、时钟） | 全部通过 |
-| 同七组检查在 LLVM 20 AddressSanitizer 下运行 | 全部通过（ASan 只覆盖独立模块，不是线程竞态检测器） |
+| 十二组宿主检查（逻辑、调度、序列化、菜单、时钟、适配器、随从、重试） | 全部通过 |
+| LLVM 20 AddressSanitizer | 历史检查结果见审计文档；本版宿主检查不能替代游戏内验证 |
 | 菜单动作贯通 UI → Runtime → Core → 外观/效果 | 待游戏验收 |
 | 读档、换档、tid 复用、异步取消 | 待游戏验收 |
 | 七区域覆盖层、26 效果、与 SlaveTatsNG 共存 | 待游戏验收 |
@@ -109,7 +113,7 @@ docs             PLAN、INTERFACES、SESSION-01..05、AUDIT、RELEASE-NOTES
 
 ## 已知限制
 
-- 必须调整 RaceMenu 槽位；默认配置下只能显示部分区域。
+- RaceMenu 默认容量只能显示部分图层；Body 四区域共享身体槽位，完整容量要求见安装说明。
 - 未接入 BiS / DnB：没有验证过的外部信号，不写“已支持”。
 - UBE 贴图不在发布包内，缺 `textures/slacs2_ube` 是预期状态。
 - 保存快照可能比最新一次 pump 晚一拍；保存回调不等待 VM、任务或材质。

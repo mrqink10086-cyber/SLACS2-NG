@@ -48,39 +48,47 @@
 
 “体液覆盖/设置”只有一个入口，以下分组在同页展开，设置共用“应用并保存”“仅应用”“撤销修改”：
 
-- **覆盖层与效果**：覆盖层开关、透明度、Mega、女性来源、女性目标限制、效果法术及 1/3 级阈值、来源类别、高级起始槽位。
+- **覆盖层与效果**：覆盖层开关、透明度、Mega、女性来源、女性目标限制、效果法术及 1/3 级阈值、来源类别、RaceMenu 实际槽位容量。
 - **衰减与清洗**：自然衰减、每层间隔（游戏小时）、雨水加速、120 活动秒整体清洗或关闭；说明睡眠/等待/快速旅行、仅室外已观测降雨、菜单暂停和游泳立即清除。
-- **角色管理与运行状态**：角色列表、七区域层数、清除/刷新、依赖与资源状态、最近诊断和测试加层。
+- **角色管理与运行状态**：已跟踪角色、玩家及当前已加载的随从列表，七区域层数、清除/刷新、依赖与资源状态、最近诊断和测试加层。点击列表选择测试角色；本插件没有 N 键选角功能。
 
 菜单只读取运行时发布的只读快照并提交值命令；角色查找、显示名、配置校验、写盘、RaceMenu 和 VM 访问都由 Runtime 执行。菜单动作携带会话 epoch，切换存档后的旧动作会被拒绝。
 
 ## RaceMenu 必须调整的设置
 
-`Data/SKSE/Plugins/skee64.ini` 由 RaceMenu 提供，本包不会覆盖。默认槽位不足以容纳七个区域：
+`Data/SKSE/Plugins/skee64.ini` 由 RaceMenu 提供，本包不会覆盖。插件通过 RaceMenu 的 `GetOverlayCount` 读取其已经从 INI 加载的实际容量，因此也遵循 MO2 的文件覆盖结果；无需在 SLACS 菜单设置起始槽或再填写一份容量。菜单会显示实际的 Body / Face / Hands / Feet 总槽数。
+
+每区域最多五层，Body 四区域共享身体池。完整显示全部图层需要 **Body 20、Face 5、Hands 5、Feet 5 个空闲槽**，其他模组的占用需要额外增加。例如未与其他模组共用时：
 
 ```ini
+[Features]
+bEnableOverlays=1
+bEnableFaceOverlays=1
+
 [Overlays]
 bPlayerOnly=0
 
 [Overlays/Body]
-iNumOverlays=27 ; 7..12 阴道、13..18 肛门、19..24 胸部、25..26 腿部
+iNumOverlays=20
 
 [Overlays/Face]
-iNumOverlays=13 ; 7..12
+iNumOverlays=5
 
 [Overlays/Hands]
-iNumOverlays=9  ; 7..8
+iNumOverlays=5
 
 [Overlays/Feet]
-iNumOverlays=9  ; 7..8
+iNumOverlays=5
 ```
 
-RaceMenu 按 `i < iNumOverlays` 遍历，所以槽位编号 26 需要 `iNumOverlays=27`。`bPlayerOnly=1` 会限制 RaceMenu 对随从/NPC 的自动覆盖层重建。槽位不足时 OverlayAdapter 返回 `NoOwnedCapacity`，逻辑层保留，不会占用其他模组的槽位；提高槽位后脏目标会在重试周期内重新写入。
+保留已有更大容量即可，无需降低。`iNumOverlays` 是总槽数，索引从 0 开始；每域最多 127 槽。`bPlayerOnly=0` 允许随从/NPC 自动重建覆盖层。修改 INI 后必须重启游戏，让 RaceMenu 重新加载设置；只在菜单应用设置不能重载 INI。
+
+插件扫描实际池中的空槽与自有槽，保留其他模组的材质。容量不足时优先显示区域内较新的层，未显示的逻辑层仍保留，并按两秒间隔重试。旧 JSON 的 `firstOwnedSlot` 会被忽略，下一次保存时移除。随从识别采用当前队友状态，并排除受命令角色、儿童、生物；菜单只枚举存活且 3D 已加载的随从。
 
 ## 覆盖层与效果资源
 
 - 七个区域均有普通与 Mega 贴图：Face、BodyVaginal、BodyAnal、BodyBreast 各 12 个索引，BodyLegs、Hands、Feet 各 4 个。
-- Body 区域使用 diffuse + normal + specular；Face 只写 normal；Hands/Feet/Legs 按配置写现有贴图。
+- Body 区域使用 diffuse + normal + specular；Face 写 diffuse + normal；Hands/Feet/Legs 按配置写现有贴图。
 - 效果法术共 26 个组合（口腔 × 阴道 × 肛门，等级 0/1/2），FormID 从 `SLACS_2_Plus_SCO.esp` 解析。
 - UBE 贴图不在本包内；缺少 `textures/slacs2_ube` 是预期状态，不影响其他区域。
 

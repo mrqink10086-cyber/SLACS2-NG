@@ -5,6 +5,7 @@
 #include "integration/RaceMenuApi.h"
 #include "runtime/ActorRegistry.h"
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -92,6 +93,7 @@ namespace slacs
 		void clearSession(SessionEpoch a_epoch);
 
 		[[nodiscard]] bool available() const;
+		[[nodiscard]] std::array<std::uint32_t, 4> capacities() const;
 
 	private:
 		struct AppliedSlot
@@ -136,6 +138,7 @@ namespace slacs
 			const std::string& a_node,
 			const LayerVisual& a_layer,
 			AppliedSlot& a_slot,
+			bool& a_changed,
 			const Settings& a_settings,
 			Region a_region);
 		std::string makeSignature(const RegionTarget& a_target, const std::vector<Assignment>& a_assignments, const std::string& a_format, float a_opacity) const;

@@ -40,7 +40,6 @@ namespace
 		auto loaded = slacs::Settings::load(path);
 		Check(loaded.status == slacs::SettingsLoadStatus::Loaded, "saved settings should load");
 		Check(loaded.value.maxLayersPerRegion == 5, "layer cap round-trips");
-		Check(loaded.value.firstOwnedSlot == slacs::Settings{}.firstOwnedSlot, "slot array round-trips");
 		Check(loaded.value.enabledSourceClasses == slacs::Settings{}.enabledSourceClasses, "class array round-trips");
 
 		{

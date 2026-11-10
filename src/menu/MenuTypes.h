@@ -53,6 +53,7 @@ namespace slacs
 		SessionEpoch epoch{};
 		Revision revision{};
 		bool sessionReady{};
+		std::array<std::uint32_t, 4> overlayCapacities{};
 		Settings settings;
 		SettingsFeedback settingsFeedback;
 		std::vector<TrackedActorRow> actors;

@@ -61,7 +61,7 @@ flowchart LR
 | `GameHours` | `double` | 游戏日历小时；自然衰减和雨中暴露预算使用。 |
 | `ActiveSeconds` | `double` | 本插件定义的活动游戏秒；120 秒清除默认按它计时，暂停/菜单时不递减。不是 `steady_clock` 秒。 |
 | `GameTime` | `{ GameHours calendarHours; ActiveSeconds activeSeconds; }` | 值快照；日历倒退/异常差由 Runtime 在送入 Core 前处理。 |
-| `SteadyTime` | `std::chrono::steady_clock::time_point` | 只用于异步 timeout、pump budget 和任务唤醒，不是业务时间。 |
+| `SteadyTime` | `std::chrono::steady_clock::time_point` | 用于异步 timeout、pump budget、失败重试冷却和任务唤醒，不计入图层业务时间。 |
 | `Region` | `BodyVaginal, BodyAnal, BodyBreast, BodyLegs, Face, Hands, Feet` | 逻辑区域；RaceMenu Body/Face/Hands/Feet 位置不进入 Core。S4 仅启用 `BodyVaginal`。 |
 | `TextureVariant` | `Normal, Mega` | 资源选择值，不是材质槽。普通/UBE profile 由 target 资源配置决定。 |
 | `LayerRecord` | `{ std::uint64_t id; std::uint16_t textureIndex; TextureVariant variant; }` | 向量顺序即创建顺序；新层追加。旧 LIFO 衰减删除末项。 |
@@ -244,7 +244,6 @@ struct Settings {
     bool rainAccelerates{true};
     double decayIntervalGameHours{1.0};
     std::uint8_t maxLayersPerRegion{5};
-    std::array<std::uint8_t, 4> firstOwnedSlot{7, 7, 7, 7}; // Body, Face, Hands, Feet
     LayerRemovalOrder layerRemovalOrder{LayerRemovalOrder::LegacyLifo};
     SwimCleaningPolicy swimCleaning{SwimCleaningPolicy::LegacyImmediateClear};
     TimedClearMode timedClear{TimedClearMode::Legacy120ActiveSeconds};
@@ -273,7 +272,7 @@ static SettingsSaveResult Settings::save(const std::filesystem::path& path,
                                          const Settings& value);
 ```
 
-`load` 先解析到临时值并验证；失败时不发布设置。文件缺失返回 `MissingUsingDefaults` 和编译期默认值，不自动写文件。`save` 写入前先验证。JSON 使用具名字段与 schema version 1；未知/无效枚举、非有限数值、范围外 opacity、超出 `[1,maxLayersPerRegion]` 的阈值及非正间隔均返回字段名和问题码。`overlayOpacity` 使用 `[0,1]` 归一值（旧 MCM 的 100 对应 `1.0`）。`firstOwnedSlot` 按 Body、Face、Hands、Feet 四个 RaceMenu 域分别设置起始槽，默认均为 7；Body 子区固定偏移为 `BodyVaginal +0`、`BodyAnal +6`、`BodyBreast +12`、`BodyLegs +18`，校验同一域内的自有范围不重叠。雨水与自然衰减共用 `decayIntervalGameHours`：`naturalDecay` 与 `rainAccelerates` 均开启时，每段已观测的暴露降雨小时按自然衰减的相同间隔增加预算；关闭自然衰减时也关闭雨水衰减。来源类别数组顺序与 `SourceClass` 一致；应用来源筛选时要求对应类别启用，Female 还要求 `allowFemaleFluid`。`megaCumForAll=false` 保留旧版静态 Mega 种族列表，由 S3 资源配置按 FormKey 解析，不提供菜单编辑。旧版 `FadeOutEnabled` 不迁移，因为原实现没有执行透明度淡出。
+`load` 先解析到临时值并验证；失败时不发布设置。文件缺失返回 `MissingUsingDefaults` 和编译期默认值，不自动写文件。`save` 写入前先验证。JSON 使用具名字段与 schema version 1；未知/无效枚举、非有限数值、范围外 opacity、超出 `[1,maxLayersPerRegion]` 的阈值及非正间隔均返回字段名和问题码。`overlayOpacity` 使用 `[0,1]` 归一值（旧 MCM 的 100 对应 `1.0`）。槽位由 OverlayAdapter 读取 RaceMenu 已从 INI 加载的实际 Normal 容量；不再维护手动起始索引。旧 schema 1 的 `firstOwnedSlot` 字段兼容读取但忽略，保存时移除。雨水与自然衰减共用 `decayIntervalGameHours`：`naturalDecay` 与 `rainAccelerates` 均开启时，每段已观测的暴露降雨小时按自然衰减的相同间隔增加预算；关闭自然衰减时也关闭雨水衰减。来源类别数组顺序与 `SourceClass` 一致；应用来源筛选时要求对应类别启用，Female 还要求 `allowFemaleFluid`。`megaCumForAll=false` 保留旧版静态 Mega 种族列表，由 S3 资源配置按 FormKey 解析，不提供菜单编辑。旧版 `FadeOutEnabled` 不迁移，因为原实现没有执行透明度淡出。
 
 默认每游戏小时衰减一层、每区上限五层、透明度 100%，其他开关见 Settings 初始化值。maxLayersPerRegion 固定为 5，不提供容量调整；阈值满足 `1 <= level1 <= level2 <= 5`。本版使用 LIFO、游泳即清；整体限时清除默认 120 活动秒，成功加层后重置 actor 的唯一期限，暂停时不递减。这个合并期限替代旧 AME 各实例的独立计时。
 
@@ -351,9 +350,9 @@ void Effects::clearSession(SessionEpoch epoch);
 
 `RegionTarget` 是一个区域的完整期望序列。`DesiredSpell::combinationIndex` 为 `(analLevel*9)+(vaginalLevel*3)+oralLevel`，范围 0–26；0 或 enabled=false 表示移除自有法术。Overlay 初始化协商 RaceMenu v2；Effects 初始化解析保留的 26 组记录。两者的记录表、材质 profile 和资源路径由模块内部管理。
 
-Runtime 每次调用前经 ActorRegistry 获取临时 ActorLease；Overlay 要求 ActorWith3D，Effects 只要求 ActorOnly。无可用 lease 时保留完整 dirty 目标，等待下一次独立 pump。适配器只在调用期间借用 lease，管理本插件拥有的槽位、键与法术。`clearSession` 仅清理适配器缓存，不访问正在卸载的世界；游戏执行阶段的正常清理通过空 RegionTarget/DesiredSpell 完成。失效通知只入队。
+Runtime 每次调用前经 ActorRegistry 获取临时 ActorLease；Overlay 要求 ActorWith3D，Effects 只要求 ActorOnly。无可用 lease 或适配器失败时保留完整 dirty 目标，并用 steady clock 为每项设置两秒冷却；冷却项不计入可执行积压。新目标、手动刷新和会话切换会更新或清除对应冷却；接受设置变更时清除旧冷却，立即应用由新设置导出的目标。适配器只在调用期间借用 lease，管理本插件拥有的槽位、键与法术。`clearSession` 仅清理适配器缓存，不访问正在卸载的世界；游戏执行阶段的正常清理通过空 RegionTarget/DesiredSpell 完成。失效通知只入队。
 
-OverlayAdapter 将 Region/LayerVisual 映射为材质 profile、槽位和差量操作。应用缓存同时检查业务 revision 与当前 3D 的修订；invalidateActor 清除该 actor 的已应用签名，使业务未变但 3D 重建时也会重画。无 3D 时保留 dirty；容量不足只使用自有或空槽并返回 NoOwnedCapacity。错误通过 OverlayResult 返回，后续从完整逻辑目标重新 reconcile。
+OverlayAdapter 将 Region/LayerVisual 映射为材质 profile、槽位和差量操作。应用缓存同时检查业务 revision 与当前 3D 的修订；invalidateActor 清除该 actor 的已应用签名，使业务未变但 3D 重建时也会重画。按 `GetOverlayCount(Normal, location)` 扫描完整实际池，每域最多 127 槽，Body 四区域共享身体池并保护彼此已占用的槽。无 3D 时保留 dirty；容量不足只使用自有或空槽并返回 NoOwnedCapacity。稳定的 partial 目标不重复提交相同材质，但保留后续空槽恢复机会。错误通过 OverlayResult 返回，后续从完整逻辑目标重新 reconcile。
 
 Effects 根据唯一 Core 派生值 reconcile 本插件 Spell；关闭效果会移除自身已应用的 Spell。其已应用值缓存只用于减少重复调用，load 后可丢弃并从 Core 重建。业务/菜单不直接读 `HasSpell` 作为层状态。
 
@@ -370,9 +369,9 @@ std::optional<EnvironmentSample> Environment::sample(
     ActorId actor, RE::Actor& resolved, const GameTime& now);
 ```
 
-`Deadline::due` 的单位由 clock 决定。自然衰减/雨水用 CalendarGameHours，整体清除/游泳采样/OverlayRetry 用 ActiveSeconds。P+ 超时单独由 Runtime 每轮读取 steady_clock 后调用 adapter 的 `poll`，不进入业务期限或存档。
+`Deadline::due` 的单位由 clock 决定。自然衰减/雨水用 CalendarGameHours，整体清除/游泳采样用 ActiveSeconds。P+ 超时单独由 Runtime 每轮读取 steady_clock 后调用 adapter 的 `poll`；覆盖层和效果失败重试由 RetrySchedule 按 steady clock 限频。两者都不进入业务期限或存档。
 
-Scheduler 是单一 Runtime pump 使用的共享容器，同一 DeadlineId 可更新或取消。到期返回 DeadlineElapsed，Runtime 核验 epoch/ownerRevision 后处理。NaturalDecay 的 owner 是 region；TimedClear/SwimSample 的 owner 是 actor。OverlayRetry 由 Runtime 管理，用 region revision，并在适配器 dirty 时安排，不由 Core 安排。owner revision 改变时，所有仍有效的对应期限都要 upsert：成功加层重置整体清除 due，其他变化保留原 due。取消后的旧到期项失效。
+Scheduler 是单一 Runtime pump 使用的共享容器，同一 DeadlineId 可更新或取消。到期返回 DeadlineElapsed，Runtime 核验 epoch/ownerRevision 后处理。NaturalDecay 的 owner 是 region；TimedClear/SwimSample 的 owner 是 actor。旧 OverlayRetry 枚举保留，Runtime 不再生成该期限。owner revision 改变时，所有仍有效的对应期限都要 upsert：成功加层重置整体清除 due，其他变化保留原 due。取消后的旧到期项失效。
 
 Environment 在游戏执行阶段采样 parent cell、Sky 降水和 actor 的 swimming 状态，输出当前值及连续观测到的雨水小时增量。Runtime 每次结算前消费一次新采样；睡眠、等待、旅行、暂停和卸载使暴露观测中断，恢复后重新起算。日历衰减仍补算这些间隔。清空采样连续性的入口为 `void Environment::reset(SessionEpoch epoch)` 和 `void Environment::invalidate(ActorId actor)`，分别由会话切换及观测中断调用。
 

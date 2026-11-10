@@ -272,7 +272,7 @@ namespace slacs
 			}
 		}
 
-		void RenderSettings()
+		void RenderSettings(const MenuSnapshot& a_snapshot)
 		{
 			auto& state = ui();
 
@@ -327,22 +327,14 @@ namespace slacs
 			}
 
 			if (api().collapsingHeader("高级：RaceMenu 覆盖槽位", 0)) {
-				TextDisabled("起始槽位必须与 skee64.ini 的 iNumOverlays 容量匹配；默认 Body 会占用 7..26 连续 20 个槽位。");
-				constexpr std::array<const char*, 4> labels{
-					"身体起始槽",
-					"面部起始槽",
-					"手部起始槽",
-					"足部起始槽",
-				};
-				constexpr std::array<int, 4> maxStarts{ 107, 121, 125, 125 };
-				for (std::size_t i = 0; i < labels.size(); ++i) {
-					int value = state.draft.firstOwnedSlot[i];
-					api().setNextItemWidth(220.0F);
-					if (api().inputInt(labels[i], &value, 1, 1, 0)) {
-						state.draft.firstOwnedSlot[i] = static_cast<std::uint8_t>(std::clamp(value, 0, maxStarts[i]));
-					}
-				}
-				TextDisabled("应用后会迁移已有精痕；修改 skee64.ini 的容量后需重启游戏。RaceMenu 每个域最多 127 个槽。");
+				const auto& capacities = a_snapshot.overlayCapacities;
+				Text("RaceMenu 实际容量：身体 " + std::to_string(capacities[0]) +
+					" / 面部 " + std::to_string(capacities[1]) +
+					" / 手部 " + std::to_string(capacities[2]) +
+					" / 足部 " + std::to_string(capacities[3]));
+				TextDisabled("自动使用 RaceMenu 从 skee64.ini 加载的实际槽位，无需设置起始槽。");
+				TextDisabled("只使用空槽和本插件已有槽；其他模组占用的槽位会保留。身体四区域共享身体槽位。");
+				TextDisabled("容量不足时保留逻辑层并限频重试。INI 设置要求见 GitHub 安装说明；修改后需重启游戏。");
 			}
 
 		}
@@ -566,7 +558,7 @@ namespace slacs
 				SyncDraft(snapshot);
 				Text("体液覆盖");
 				TextWrapped("设置跨存档共用。点击“应用并保存”后持久保存；“仅应用”只修改本次运行的设置。");
-				if (api().collapsingHeader("覆盖层与效果", 1 << 5)) RenderSettings();
+				if (api().collapsingHeader("覆盖层与效果", 1 << 5)) RenderSettings(snapshot);
 				if (api().collapsingHeader("衰减与清洗", 1 << 5)) RenderDecay();
 				RenderSettingsActions(snapshot);
 				if (api().collapsingHeader("角色管理与运行状态", 0)) RenderMaintenance(snapshot);

@@ -15,6 +15,7 @@
 #include "runtime/Ingress.h"
 #include "runtime/Scheduler.h"
 #include "runtime/RoundRobin.h"
+#include "runtime/RetrySchedule.h"
 
 #include <SKSE/Interfaces.h>
 
@@ -94,8 +95,8 @@ namespace slacs
 		void sampleEnvironment(const GameTime& a_now, PumpReport& a_report);
 		void processDirtyVisuals(PumpReport& a_report, std::size_t a_maxTargets);
 		void processDirtyEffects(PumpReport& a_report, std::size_t a_maxTargets);
-		void enqueueCurrentTarget(ActorId a_actor, Region a_region);
-		void invalidateActorVisuals(ActorId a_actor, VisualInvalidation a_reason);
+		void enqueueCurrentTarget(ActorId a_actor, Region a_region, bool a_resetRetry);
+		void invalidateActorVisuals(ActorId a_actor, VisualInvalidation a_reason, bool a_resetRetry = false);
 		void processQuestRetry();
 		void scheduleQuestRetry();
 		void processDueWork(const GameTime& a_now, SteadyTime a_started, const WorkBudget& a_budget, PumpReport& a_report);
@@ -105,7 +106,7 @@ namespace slacs
 		void settleAllWithOldSettings(const GameTime& a_now, PumpReport& a_report);
 		void applyDeadlineIntents(const ChangeSet& a_change, PumpReport& a_report);
 		DeadlineId stableDeadlineId(ActorId a_actor, DeadlineKind a_kind, const std::optional<Region>& a_region);
-		void scheduleOverlayRetry(ActorId a_actor, Region a_region, Revision a_revision);
+		void scheduleOverlayRetry(ActorId a_actor, Region a_region);
 		void cancelOverlayRetry(ActorId a_actor, Region a_region);
 		void resetSessionState();
 		void removeActorForm(FormId a_formId);
@@ -154,6 +155,8 @@ namespace slacs
 		std::unordered_map<Tid, TidOrderState> tidOrder_;
 		std::map<std::uint64_t, RegionTarget> dirtyVisuals_;
 		std::map<ActorId, SpellTarget> dirtyEffects_;
+		RetrySchedule<std::uint64_t> dirtyVisualRetries_;
+		RetrySchedule<ActorId> dirtyEffectRetries_;
 		std::map<ActorId, bool> visual3DReady_;
 		RoundRobin<std::uint64_t> visualCursor_;
 		RoundRobin<ActorId> effectCursor_;

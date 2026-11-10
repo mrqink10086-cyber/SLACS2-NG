@@ -430,28 +430,6 @@ namespace slacs
 			return true;
 		}
 
-		bool ReadSlotArray(const JsonValue& a_object, std::string_view a_key, std::array<std::uint8_t, 4>& a_out, std::vector<SettingsIssue>& a_issues)
-		{
-			const auto* value = Find(a_object, a_key);
-			if (!value) {
-				return true;
-			}
-			if (value->kind != JsonKind::Array || value->array.size() != 4) {
-				AddIssue(a_issues, std::string(a_key), SettingsIssueCode::Parse);
-				return false;
-			}
-			for (std::size_t i = 0; i < 4; ++i) {
-				const auto& item = value->array[i];
-				if (item.kind != JsonKind::Number || std::floor(item.number) != item.number ||
-					item.number < 0.0 || item.number > 255.0) {
-					AddIssue(a_issues, std::string(a_key), SettingsIssueCode::OutOfRange);
-					return false;
-				}
-				a_out[i] = static_cast<std::uint8_t>(item.number);
-			}
-			return true;
-		}
-
 		bool KnownKey(std::string_view a_key)
 		{
 			return a_key == "schemaVersion" ||
@@ -511,8 +489,6 @@ namespace slacs
 			if (ReadInteger(a_root, "maxLayersPerRegion", integer, a_issues)) {
 				value.maxLayersPerRegion = static_cast<std::uint8_t>(integer);
 			}
-
-			ReadSlotArray(a_root, "firstOwnedSlot", value.firstOwnedSlot, a_issues);
 
 			if (ReadString(a_root, "layerRemovalOrder", text, a_issues) && Find(a_root, "layerRemovalOrder")) {
 				if (text == "LegacyLifo") {
@@ -606,33 +582,6 @@ namespace slacs
 		}
 	}
 
-	OverlaySlotRange OverlaySlotsForRegion(const Settings& a_settings, Region a_region)
-	{
-		// The visible ranges are fixed by the legacy RaceMenu layout. Logical
-		// capacity (five layers) is smaller than the body ranges on purpose:
-		// a region can keep more logical layers than it can show.
-		constexpr std::array<std::uint8_t, kRegionCount> kOffsets{ 0, 6, 12, 18, 0, 0, 0 };
-		constexpr std::array<std::uint8_t, kRegionCount> kCounts{ 6, 6, 6, 2, 6, 2, 2 };
-		constexpr std::array<OverlayDomain, kRegionCount> kDomains{
-			OverlayDomain::Body,
-			OverlayDomain::Body,
-			OverlayDomain::Body,
-			OverlayDomain::Body,
-			OverlayDomain::Face,
-			OverlayDomain::Hands,
-			OverlayDomain::Feet,
-		};
-		const auto index = RegionIndex(a_region);
-		if (index >= kRegionCount) {
-			return {};
-		}
-		const auto domain = static_cast<std::size_t>(kDomains[index]);
-		return OverlaySlotRange{
-			static_cast<std::uint16_t>(static_cast<std::uint16_t>(a_settings.firstOwnedSlot[domain]) + kOffsets[index]),
-			static_cast<std::uint16_t>(kCounts[index]),
-		};
-	}
-
 	SettingsValidationResult Settings::validate(const Settings& a_value)
 	{
 		SettingsValidationResult result{};
@@ -659,62 +608,6 @@ namespace slacs
 			a_value.spellLevel1Threshold > a_value.spellLevel2Threshold) {
 			add("spellLevel2Threshold", SettingsIssueCode::OutOfRange);
 		}
-		constexpr std::uint16_t kMaxSlot = 126;
-		constexpr std::array<const char*, 4> kSlotKeys{
-			"firstOwnedSlot[0]",
-			"firstOwnedSlot[1]",
-			"firstOwnedSlot[2]",
-			"firstOwnedSlot[3]",
-		};
-		constexpr std::array<Region, kSlotKeys.size()> kDomainProbe{
-			Region::BodyVaginal,
-			Region::Face,
-			Region::Hands,
-			Region::Feet,
-		};
-		for (std::size_t domain = 0; domain < kDomainProbe.size(); ++domain) {
-			const auto range = OverlaySlotsForRegion(a_value, kDomainProbe[domain]);
-			const auto last = static_cast<std::uint16_t>(range.firstSlot) + range.slotCount - 1;
-			if (last > kMaxSlot) {
-				add(kSlotKeys[domain], SettingsIssueCode::OutOfRange);
-			}
-		}
-		// The Body probe above covers only the first sub-range. BodyLegs is the
-		// last sub-range at +18 and must also stay inside the node array.
-		{
-			const auto range = OverlaySlotsForRegion(a_value, Region::BodyLegs);
-			const auto last = static_cast<std::uint16_t>(range.firstSlot) + range.slotCount - 1;
-			if (last > kMaxSlot) {
-				add("firstOwnedSlot[0]", SettingsIssueCode::OutOfRange);
-			}
-		}
-
-		// Body's four sub-ranges share one RaceMenu location. Reject any
-		// configuration in which two of them overlap, now or after a later
-		// layout change.
-		constexpr std::array<Region, 4> kBodyRegions{
-			Region::BodyVaginal,
-			Region::BodyAnal,
-			Region::BodyBreast,
-			Region::BodyLegs,
-		};
-		std::array<std::pair<std::uint16_t, std::uint16_t>, kBodyRegions.size()> bodyRanges{};
-		for (std::size_t i = 0; i < kBodyRegions.size(); ++i) {
-			const auto range = OverlaySlotsForRegion(a_value, kBodyRegions[i]);
-			bodyRanges[i] = {
-				range.firstSlot,
-				static_cast<std::uint16_t>(range.firstSlot + range.slotCount - 1),
-			};
-		}
-		for (std::size_t i = 0; i < bodyRanges.size(); ++i) {
-			for (std::size_t j = i + 1; j < bodyRanges.size(); ++j) {
-				if (std::max(bodyRanges[i].first, bodyRanges[j].first) <=
-					std::min(bodyRanges[i].second, bodyRanges[j].second)) {
-					add("firstOwnedSlot[0]", SettingsIssueCode::OutOfRange);
-				}
-			}
-		}
-
 		result.valid = result.issues.empty();
 		return result;
 	}
@@ -813,10 +706,6 @@ namespace slacs
 		file << "  \"rainAccelerates\": " << (a_value.rainAccelerates ? "true" : "false") << ",\n";
 		file << "  \"decayIntervalGameHours\": " << a_value.decayIntervalGameHours << ",\n";
 		file << "  \"maxLayersPerRegion\": " << static_cast<std::uint32_t>(a_value.maxLayersPerRegion) << ",\n";
-		file << "  \"firstOwnedSlot\": [" << static_cast<std::uint32_t>(a_value.firstOwnedSlot[0]) << ", "
-			 << static_cast<std::uint32_t>(a_value.firstOwnedSlot[1]) << ", "
-			 << static_cast<std::uint32_t>(a_value.firstOwnedSlot[2]) << ", "
-			 << static_cast<std::uint32_t>(a_value.firstOwnedSlot[3]) << "],\n";
 		file << "  \"layerRemovalOrder\": \"LegacyLifo\",\n";
 		file << "  \"swimCleaning\": \"LegacyImmediateClear\",\n";
 		file << "  \"timedClear\": \"" << (a_value.timedClear == TimedClearMode::Disabled ? "Disabled" : "Legacy120ActiveSeconds") << "\",\n";

@@ -1,5 +1,6 @@
 #include "runtime/Runtime.h"
 
+#include "integration/Followers.h"
 #include "menu/Menu.h"
 #include "menu/MenuText.h"
 
@@ -356,6 +357,8 @@ namespace slacs
 		tidOrder_.clear();
 		dirtyVisuals_.clear();
 		dirtyEffects_.clear();
+		dirtyVisualRetries_.clear();
+		dirtyEffectRetries_.clear();
 		visual3DReady_.clear();
 		visualCursor_.reset();
 		effectCursor_.reset();
@@ -409,9 +412,11 @@ namespace slacs
 		effects_.invalidate(*actorId);
 		environment_.invalidate(*actorId);
 		dirtyEffects_.erase(*actorId);
+		dirtyEffectRetries_.clear(*actorId);
 		visual3DReady_.erase(*actorId);
 		for (auto it = dirtyVisuals_.begin(); it != dirtyVisuals_.end();) {
 			if (static_cast<ActorId>(it->first >> 3) == *actorId) {
+				dirtyVisualRetries_.clear(it->first);
 				it = dirtyVisuals_.erase(it);
 			} else {
 				++it;
@@ -659,8 +664,16 @@ namespace slacs
 		if (questRetryPending_) {
 			background_.requestAfter(std::chrono::milliseconds{ 250 });
 		}
-		if (!dirtyVisuals_.empty() || !dirtyEffects_.empty()) {
-			background_.requestAfter(std::chrono::milliseconds{ 500 });
+		const auto now = std::chrono::steady_clock::now();
+		const auto requestRetryWake = [this, now](const auto& a_retries, const auto& a_items) {
+			const auto due = a_retries.nextReadyAt(a_items, now);
+			if (due && *due > now) {
+				background_.requestAfter(std::chrono::ceil<std::chrono::milliseconds>(*due - now));
+			}
+		};
+		requestRetryWake(dirtyVisualRetries_, dirtyVisuals_);
+		if (effectsReady_) {
+			requestRetryWake(dirtyEffectRetries_, dirtyEffects_);
 		}
 		if (pplus_.pending() > 0) {
 			background_.requestAfter(std::chrono::milliseconds{ 50 });
@@ -871,14 +884,6 @@ namespace slacs
 		case DeadlineKind::SwimSample:
 			advanceActor(a_elapsed.actor, a_now, nullptr, a_report);
 			break;
-		case DeadlineKind::OverlayRetry:
-			if (a_elapsed.region &&
-				RegionIndex(*a_elapsed.region) < kRegionCount &&
-				state.regions[RegionIndex(*a_elapsed.region)].revision != a_elapsed.ownerRevision) {
-				rejectRevision();
-				return;
-			}
-			break;
 		default:
 			rejectRevision();
 			break;
@@ -887,7 +892,13 @@ namespace slacs
 
 	void Runtime::sampleEnvironment(const GameTime& a_now, PumpReport& a_report)
 	{
-		if (auto* timer = RE::BSTimer::GetSingleton(); !timer || timer->pauseCount != 0) {
+		const auto* timer = RE::BSTimer::GetSingleton();
+		bool paused = !timer || timer->pauseCount != 0;
+		if (const auto* main = RE::Main::GetSingleton()) {
+			paused = paused || main->GetRuntimeData().freezeTime;
+		}
+		if (paused) {
+			environmentScanRemaining_ = 0;
 			environment_.invalidateAll();
 			return;
 		}
@@ -1016,31 +1027,16 @@ namespace slacs
 		return id;
 	}
 
-	void Runtime::scheduleOverlayRetry(ActorId a_actor, Region a_region, Revision a_revision)
+	void Runtime::scheduleOverlayRetry(ActorId a_actor, Region a_region)
 	{
-		const auto id = stableDeadlineId(a_actor, DeadlineKind::OverlayRetry, a_region);
-		if (scheduler_.updateRevision(id, a_revision, epoch())) {
-			return;
-		}
-		Deadline deadline{};
-		deadline.id = id;
-		deadline.actor = a_actor;
-		deadline.kind = DeadlineKind::OverlayRetry;
-		deadline.clock = ClockDomain::ActiveSeconds;
-		deadline.due = currentGameTime().activeSeconds + 2.0;
-		deadline.epoch = epoch();
-		deadline.region = a_region;
-		deadline.ownerRevision = a_revision;
-		scheduler_.upsert(deadline);
+		const auto visualKey = (a_actor << 3) | static_cast<std::uint64_t>(RegionIndex(a_region));
+		dirtyVisualRetries_.defer(visualKey, std::chrono::steady_clock::now() + std::chrono::seconds{ 2 });
 	}
 
 	void Runtime::cancelOverlayRetry(ActorId a_actor, Region a_region)
 	{
-		const auto key = std::make_tuple(a_actor, DeadlineKind::OverlayRetry, std::optional<Region>{ a_region });
-		const auto found = deadlineIds_.find(key);
-		if (found != deadlineIds_.end()) {
-			scheduler_.cancel(found->second);
-		}
+		const auto visualKey = (a_actor << 3) | static_cast<std::uint64_t>(RegionIndex(a_region));
+		dirtyVisualRetries_.clear(visualKey);
 	}
 
 	void Runtime::processCommand(const RuntimeCommand& a_command, PumpReport& a_report)
@@ -1365,10 +1361,19 @@ namespace slacs
 
 		for (const auto& target : a_change.regions) {
 			const auto key = (target.actor << 3) | static_cast<std::uint64_t>(RegionIndex(target.region));
+			const auto queued = dirtyVisuals_.find(key);
+			const auto retryNow = std::chrono::steady_clock::now();
+			if (queued != dirtyVisuals_.end() && queued->second.revision == target.revision &&
+				!dirtyVisualRetries_.ready(key, retryNow)) {
+				continue;
+			}
+			if (queued == dirtyVisuals_.end() || queued->second.revision != target.revision) {
+				dirtyVisualRetries_.clear(key);
+			}
 			const auto lease = actorRegistry_.resolve(target.actor, ResolveNeed::ActorWith3D);
 			if (!lease) {
 				dirtyVisuals_[key] = target;
-				scheduleOverlayRetry(target.actor, target.region, target.revision);
+				scheduleOverlayRetry(target.actor, target.region);
 				continue;
 			}
 
@@ -1385,7 +1390,7 @@ namespace slacs
 				result.status == OverlayStatus::NoOwnedCapacity ||
 				result.status == OverlayStatus::ApiUnavailable) {
 				dirtyVisuals_[key] = target;
-				scheduleOverlayRetry(target.actor, target.region, target.revision);
+				scheduleOverlayRetry(target.actor, target.region);
 				if (result.status == OverlayStatus::NoOwnedCapacity) {
 					const auto now = std::chrono::steady_clock::now();
 					auto [notice, inserted] = capacityNoticeAt_.try_emplace(key, now);
@@ -1407,7 +1412,7 @@ namespace slacs
 			}
 			if (result.status != OverlayStatus::Applied && result.status != OverlayStatus::NoChange) {
 				dirtyVisuals_[key] = target;
-				scheduleOverlayRetry(target.actor, target.region, target.revision);
+				scheduleOverlayRetry(target.actor, target.region);
 				RuntimeDiagnostic runtime{};
 				runtime.module = RuntimeModule::Overlay;
 				runtime.code = result.status == OverlayStatus::StaleRevision ?
@@ -1426,14 +1431,25 @@ namespace slacs
 
 		if (effectsReady_) {
 			for (const auto& target : a_change.spells) {
+				const auto queued = dirtyEffects_.find(target.actor);
+				const auto retryNow = std::chrono::steady_clock::now();
+				if (queued != dirtyEffects_.end() && queued->second.revision == target.revision &&
+					!dirtyEffectRetries_.ready(target.actor, retryNow)) {
+					continue;
+				}
+				if (queued == dirtyEffects_.end() || queued->second.revision != target.revision) {
+					dirtyEffectRetries_.clear(target.actor);
+				}
 				const auto lease = actorRegistry_.resolve(target.actor, ResolveNeed::ActorOnly);
 				if (!lease) {
 					dirtyEffects_[target.actor] = target;
+					dirtyEffectRetries_.defer(target.actor, std::chrono::steady_clock::now() + std::chrono::seconds{ 2 });
 					continue;
 				}
 				const auto result = effects_.reconcile(*lease, target);
 				if (result.status == EffectStatus::Applied || result.status == EffectStatus::NoChange) {
 					dirtyEffects_.erase(target.actor);
+					dirtyEffectRetries_.clear(target.actor);
 					continue;
 				}
 				if (result.status == EffectStatus::StaleRevision) {
@@ -1441,6 +1457,7 @@ namespace slacs
 					continue;
 				}
 				dirtyEffects_[target.actor] = target;
+				dirtyEffectRetries_.defer(target.actor, std::chrono::steady_clock::now() + std::chrono::seconds{ 2 });
 				if (result.status != EffectStatus::DeferredActorUnavailable) {
 					RuntimeDiagnostic runtime{};
 					runtime.module = RuntimeModule::Effects;
@@ -1486,16 +1503,21 @@ namespace slacs
 		const auto started = std::chrono::steady_clock::now();
 		constexpr auto kDirtyBudget = std::chrono::milliseconds{ 2 };
 		std::vector<std::uint64_t> resolved;
-		std::size_t processed = 0;
+		std::size_t examined = 0;
+		std::size_t attempted = 0;
 		const auto pending = dirtyVisuals_.size();
-		while (processed < pending && processed < a_maxTargets) {
+		const auto now = std::chrono::steady_clock::now();
+		while (examined < pending && attempted < a_maxTargets) {
 			if (std::chrono::steady_clock::now() - started >= kDirtyBudget) {
-				a_report.deferred = true;
 				break;
 			}
-			++processed;
+			++examined;
 			const auto next = visualCursor_.next(dirtyVisuals_);
 			const auto& [key, target] = *next;
+			if (!dirtyVisualRetries_.ready(key, now)) {
+				continue;
+			}
+			++attempted;
 			const auto actor = coreState_.actors.find(target.actor);
 			if (actor == coreState_.actors.end() ||
 				actor->second.regions[RegionIndex(target.region)].revision != target.revision) {
@@ -1505,7 +1527,7 @@ namespace slacs
 			}
 			const auto lease = actorRegistry_.resolve(target.actor, ResolveNeed::ActorWith3D);
 			if (!lease) {
-				scheduleOverlayRetry(target.actor, target.region, target.revision);
+				scheduleOverlayRetry(target.actor, target.region);
 				continue;
 			}
 			const auto result = overlay_.reconcile(*lease, target, settings_);
@@ -1513,7 +1535,7 @@ namespace slacs
 			perfOverlaySlots_ += result.slotsApplied;
 			if (result.status != OverlayStatus::Applied && result.status != OverlayStatus::NoChange &&
 				result.status != OverlayStatus::StaleRevision) {
-				scheduleOverlayRetry(target.actor, target.region, target.revision);
+				scheduleOverlayRetry(target.actor, target.region);
 				continue;
 			}
 			resolved.push_back(key);
@@ -1522,7 +1544,7 @@ namespace slacs
 		for (const auto key : resolved) {
 			dirtyVisuals_.erase(key);
 		}
-		if (processed < pending) {
+		if (dirtyVisualRetries_.hasReady(dirtyVisuals_, std::chrono::steady_clock::now())) {
 			a_report.deferred = true;
 		}
 
@@ -1538,18 +1560,24 @@ namespace slacs
 		const auto started = std::chrono::steady_clock::now();
 		constexpr auto kDirtyBudget = std::chrono::milliseconds{ 2 };
 		std::vector<ActorId> resolved;
-		std::size_t processed = 0;
+		std::size_t examined = 0;
+		std::size_t attempted = 0;
 		const auto pending = dirtyEffects_.size();
-		while (processed < pending && processed < a_maxTargets) {
+		const auto now = std::chrono::steady_clock::now();
+		while (examined < pending && attempted < a_maxTargets) {
 			if (std::chrono::steady_clock::now() - started >= kDirtyBudget) {
-				a_report.deferred = true;
 				break;
 			}
-			++processed;
+			++examined;
 			const auto next = effectCursor_.next(dirtyEffects_);
 			const auto& [actor, target] = *next;
+			if (!dirtyEffectRetries_.ready(actor, now)) {
+				continue;
+			}
+			++attempted;
 			const auto lease = actorRegistry_.resolve(actor, ResolveNeed::ActorOnly);
 			if (!lease) {
+				dirtyEffectRetries_.defer(actor, std::chrono::steady_clock::now() + std::chrono::seconds{ 2 });
 				continue;
 			}
 			const auto result = effects_.reconcile(*lease, target);
@@ -1557,17 +1585,20 @@ namespace slacs
 				result.status == EffectStatus::NoChange ||
 				result.status == EffectStatus::StaleRevision) {
 				resolved.push_back(actor);
+				dirtyEffectRetries_.clear(actor);
+			} else {
+				dirtyEffectRetries_.defer(actor, std::chrono::steady_clock::now() + std::chrono::seconds{ 2 });
 			}
 		}
 		for (const auto actor : resolved) {
 			dirtyEffects_.erase(actor);
 		}
-		if (processed < pending) {
+		if (dirtyEffectRetries_.hasReady(dirtyEffects_, std::chrono::steady_clock::now())) {
 			a_report.deferred = true;
 		}
 	}
 
-	void Runtime::enqueueCurrentTarget(ActorId a_actor, Region a_region)
+	void Runtime::enqueueCurrentTarget(ActorId a_actor, Region a_region, bool a_resetRetry)
 	{
 		const auto found = coreState_.actors.find(a_actor);
 		if (found == coreState_.actors.end()) {
@@ -1583,14 +1614,18 @@ namespace slacs
 			target.layers.push_back(LayerVisual{ layer.id, layer.textureIndex, layer.variant });
 		}
 		const auto key = (a_actor << 3) | static_cast<std::uint64_t>(RegionIndex(a_region));
+		const auto queued = dirtyVisuals_.find(key);
+		if (a_resetRetry || queued == dirtyVisuals_.end() || queued->second.revision != target.revision) {
+			dirtyVisualRetries_.clear(key);
+		}
 		dirtyVisuals_[key] = std::move(target);
 	}
 
-	void Runtime::invalidateActorVisuals(ActorId a_actor, VisualInvalidation a_reason)
+	void Runtime::invalidateActorVisuals(ActorId a_actor, VisualInvalidation a_reason, bool a_resetRetry)
 	{
 		overlay_.invalidateActor(a_actor, a_reason);
 		for (const auto region : kRegions) {
-			enqueueCurrentTarget(a_actor, region);
+			enqueueCurrentTarget(a_actor, region, a_resetRetry);
 		}
 		effects_.invalidate(a_actor);
 		const auto found = coreState_.actors.find(a_actor);
@@ -1614,6 +1649,10 @@ namespace slacs
 			target.desired.combinationIndex = static_cast<std::uint8_t>(
 				level(anal) * 9 + level(vaginal) * 3 + level(oral));
 			target.desired.enabled = settings_.effectsEnabled;
+			const auto queued = dirtyEffects_.find(a_actor);
+			if (a_resetRetry || queued == dirtyEffects_.end() || queued->second.revision != target.revision) {
+				dirtyEffectRetries_.clear(a_actor);
+			}
 			dirtyEffects_[a_actor] = target;
 		}
 		background_.request();
@@ -1651,6 +1690,8 @@ namespace slacs
 						// the elapsed hours were accumulated, then replace and rebuild.
 						settleAllWithOldSettings(now, a_report);
 						settings_ = action.settings;
+						dirtyVisualRetries_.clear();
+						dirtyEffectRetries_.clear();
 						const auto change = Core::apply(coreState_, CoreOp{ SettingsChanged{} }, settings_, now);
 						applyChangeSet(change, a_report);
 					}
@@ -1709,7 +1750,7 @@ namespace slacs
 						a_report.diagnostics.push_back(diagnostic);
 						return;
 					}
-					invalidateActorVisuals(action.actor, VisualInvalidation::Actor3DRebuilt);
+					invalidateActorVisuals(action.actor, VisualInvalidation::Actor3DRebuilt, true);
 					logs::info("Menu refresh actor={}", action.actor);
 				} else if constexpr (std::is_same_v<T, TestAdd>) {
 					if (!actorRegistry_.resolve(action.actor, ResolveNeed::ActorOnly)) {
@@ -1816,6 +1857,7 @@ namespace slacs
 		snapshot.epoch = epoch();
 		snapshot.revision = ++menuRevision_;
 		snapshot.sessionReady = sessionReady_.load(std::memory_order_acquire);
+		snapshot.overlayCapacities = overlay_.capacities();
 		snapshot.settings = settings_;
 		snapshot.settingsFeedback = menuFeedback_;
 		snapshot.actors.reserve(coreState_.actors.size());
@@ -1841,17 +1883,27 @@ namespace slacs
 			snapshot.actors.push_back(std::move(row));
 		}
 		if (snapshot.sessionReady) {
-			if (auto* player = RE::PlayerCharacter::GetSingleton()) {
-				const auto actor = actorRegistry_.bind(player->GetFormID());
-				if (actor && !coreState_.actors.contains(*actor)) {
+			const auto appendAvailableActor = [&](RE::Actor* a_actor) {
+				if (!a_actor) {
+					return;
+				}
+				const auto actor = actorRegistry_.bind(a_actor->GetFormID());
+				if (actor && std::none_of(snapshot.actors.begin(), snapshot.actors.end(), [&](const auto& a_row) {
+					return a_row.actor == *actor;
+				})) {
 					TrackedActorRow row{};
 					row.actor = *actor;
-					row.formId = player->GetFormID();
+					row.formId = a_actor->GetFormID();
 					row.tracked = false;
 					row.displayName = actorDisplayName(row.formId);
-					row.has3D = player->Is3DLoaded();
+					row.has3D = a_actor->Is3DLoaded();
 					snapshot.actors.push_back(std::move(row));
 				}
+			};
+			appendAvailableActor(RE::PlayerCharacter::GetSingleton());
+			for (const auto& handle : GetFollowers()) {
+				const auto actor = handle.get();
+				appendAvailableActor(actor.get());
 			}
 		}
 		snapshot.diagnostics.reserve(menuDiagnostics_.size());

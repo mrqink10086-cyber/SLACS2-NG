@@ -35,18 +35,6 @@ namespace slacs
 			if (a_key == "maxLayersPerRegion") {
 				return "每区域层数上限";
 			}
-			if (a_key == "firstOwnedSlot[0]") {
-				return "身体起始覆盖槽";
-			}
-			if (a_key == "firstOwnedSlot[1]") {
-				return "面部起始覆盖槽";
-			}
-			if (a_key == "firstOwnedSlot[2]") {
-				return "手部起始覆盖槽";
-			}
-			if (a_key == "firstOwnedSlot[3]") {
-				return "足部起始覆盖槽";
-			}
 			if (a_key == "layerRemovalOrder") {
 				return "层移除顺序";
 			}
