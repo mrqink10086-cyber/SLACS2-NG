@@ -26,6 +26,7 @@ namespace slacs
 		constexpr std::uint8_t kAlphaIndex = 0xFF;
 		constexpr std::uint32_t kMaxOverlayCount = 127;
 		constexpr const char* kDefaultDiffuse = "textures\\actors\\character\\overlays\\default.dds";
+			constexpr const char* kLegacyDefaultDiffuse = "actors\\character\\overlays\\default.dds";
 
 		struct RegionProfile
 		{
@@ -61,6 +62,14 @@ namespace slacs
 			"textures\\slacs2\\handjob\\",
 			"textures\\slacs2\\oral\\",
 		};
+			constexpr std::array<std::string_view, 6> kLegacyOurTexturePrefixes{
+				"data\\textures\\slacs2\\vaginal\\",
+				"data\\textures\\slacs2\\anal\\",
+				"data\\textures\\slacs2\\breast\\",
+				"data\\textures\\slacs2\\footjob\\",
+				"data\\textures\\slacs2\\handjob\\",
+				"data\\textures\\slacs2\\oral\\",
+			};
 
 		const RegionProfile& ProfileFor(Region a_region)
 		{
@@ -169,15 +178,18 @@ namespace slacs
 
 		bool isDefaultTexture(std::string_view a_value)
 		{
-			return a_value.empty() || equalsIgnoreCase(a_value, kDefaultDiffuse);
+			return a_value.empty() || equalsIgnoreCase(a_value, kDefaultDiffuse) ||
+				equalsIgnoreCase(a_value, kLegacyDefaultDiffuse);
 		}
 
 		bool isOurTexture(std::string_view a_value)
 		{
-			return std::any_of(kOurTexturePrefixes.begin(), kOurTexturePrefixes.end(), [a_value](std::string_view a_prefix) {
+			const auto hasPrefix = [a_value](std::string_view a_prefix) {
 				return a_value.size() >= a_prefix.size() &&
 					equalsIgnoreCase(a_value.substr(0, a_prefix.size()), a_prefix);
-			});
+			};
+			return std::any_of(kOurTexturePrefixes.begin(), kOurTexturePrefixes.end(), hasPrefix) ||
+				std::any_of(kLegacyOurTexturePrefixes.begin(), kLegacyOurTexturePrefixes.end(), hasPrefix);
 		}
 
 		OverlayResult failure(ActorId a_actor, Region a_region, Revision a_revision, OverlayStatus a_status, OverlayErrorCode a_error)
@@ -400,6 +412,21 @@ namespace slacs
 		const auto cached = applied_.find(key);
 		if (cached != applied_.end() && a_target.revision < cached->second.revision) {
 			return failure(a_target.actor, a_target.region, a_target.revision, OverlayStatus::StaleRevision, OverlayErrorCode::StaleRevision);
+		}
+		if (dependencies_.textureExists) {
+			const auto missingResource = [&](std::string a_path) {
+				auto result = failure(a_target.actor, a_target.region, a_target.revision,
+					OverlayStatus::Failed, OverlayErrorCode::MissingTexture);
+				result.resourcePath = std::move(a_path);
+				return result;
+			};
+			if (!dependencies_.textureExists(kDefaultDiffuse)) return missingResource(kDefaultDiffuse);
+			if (a_settings.overlaysEnabled) {
+				for (const auto& layer : a_target.layers) {
+					auto path = textureGamePath(a_target.region, layer.textureIndex, layer.variant, "");
+					if (!dependencies_.textureExists(path)) return missingResource(std::move(path));
+				}
+			}
 		}
 
 		std::vector<std::uint8_t> reservedByOther(availableSlots, 0);
@@ -976,14 +1003,15 @@ namespace slacs
 			a_slot.specular = textureGamePath(a_region, a_layer.textureIndex, a_layer.variant, "_s");
 		}
 
-		std::error_code normalError;
-		std::error_code specularError;
-		if (profile.hasNormal &&
-			!std::filesystem::exists(texturePath(a_region, a_layer.textureIndex, a_layer.variant, "_n"), normalError)) {
+		const auto hasOptionalTexture = [&](const std::string& a_resource, const char* a_suffix) {
+			if (dependencies_.textureExists) return dependencies_.textureExists(a_resource);
+			std::error_code error;
+			return std::filesystem::exists(texturePath(a_region, a_layer.textureIndex, a_layer.variant, a_suffix), error);
+		};
+		if (profile.hasNormal && !hasOptionalTexture(a_slot.normal, "_n")) {
 			a_slot.normal.clear();
 		}
-		if (profile.hasSpecular &&
-			!std::filesystem::exists(texturePath(a_region, a_layer.textureIndex, a_layer.variant, "_s"), specularError)) {
+		if (profile.hasSpecular && !hasOptionalTexture(a_slot.specular, "_s")) {
 			a_slot.specular.clear();
 		}
 

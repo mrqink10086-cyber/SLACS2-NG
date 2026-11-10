@@ -20,6 +20,7 @@ namespace
 	using namespace slacs;
 	int failures{};
 	constexpr auto defaultTexture = "textures\\actors\\character\\overlays\\default.dds";
+	constexpr auto legacyDefaultTexture = "actors\\character\\overlays\\default.dds";
 	const ActorLease actor{ std::make_shared<RE::Actor>(), std::make_shared<RE::NiAVObject>() };
 
 	void Expect(bool a_condition, std::string_view a_message)
@@ -87,6 +88,39 @@ namespace
 			std::filesystem::remove_all(root, error);
 		}
 	};
+
+	void CheckTextureResourcePreflight()
+	{
+		const std::string diffuse = "textures\\slacs2\\Vaginal\\body1.dds";
+		for (const auto& missing : { std::string(defaultTexture), diffuse }) {
+			OverlayAdapter adapter;
+			Setup(adapter);
+			adapter.setDependencies({ [] { return std::filesystem::path("missing-loose-assets"); },
+				[] { return SessionEpoch{ 1 }; }, {},
+				[&](const std::string& path) { return path != missing; } });
+			const auto result = adapter.reconcile(actor, Target(Region::BodyVaginal, 1), Settings{});
+			Expect(result.status == OverlayStatus::Failed && result.error == OverlayErrorCode::MissingTexture,
+				"unreadable required resource rejects the target");
+			Expect(result.resourcePath == missing, "unreadable resource reports its precise path");
+			Expect(fakeOverride.writes == 0 && fakeOverlay.addOverlaysCalls == 0 && fakeOverride.setNodePropertiesCalls == 0,
+				"resource rejection happens before creating overlays or changing materials");
+		}
+		OverlayAdapter adapter;
+		Setup(adapter);
+		adapter.setDependencies({ [] { return std::filesystem::path("missing-loose-assets"); },
+			[] { return SessionEpoch{ 1 }; }, {}, [](const std::string&) { return true; } });
+		const auto result = adapter.reconcile(actor, Target(Region::BodyVaginal, 1), Settings{});
+		Expect(result.status == OverlayStatus::Applied, "virtual resources are accepted without loose files");
+		bool hasNormal = false;
+		bool hasSpecular = false;
+		for (const auto& [key, value] : fakeOverride.data) {
+			if (std::get<1>(key) != 9 || !std::holds_alternative<std::string>(value)) continue;
+			const auto& path = std::get<std::string>(value);
+			hasNormal |= std::get<2>(key) == 1 && path.ends_with("body1_n.dds");
+			hasSpecular |= std::get<2>(key) == 2 && path.ends_with("body1_s.dds");
+		}
+		Expect(hasNormal && hasSpecular, "optional maps use the virtual resource query as well");
+	}
 
 	void CheckApiCallMetrics()
 	{
@@ -229,6 +263,42 @@ namespace
 			const auto result = adapter.reconcile(actor, Target(Region::BodyVaginal), Settings{});
 			Expect(result.status == OverlayStatus::Applied && result.slotsApplied == 5,
 				"blank diffuse slots remain usable with residual alpha");
+		}
+	}
+
+	void CheckLegacyTexturePathClassification()
+	{
+		{
+			OverlayAdapter adapter;
+			Setup(adapter);
+			for (unsigned slot = 0; slot < 6; ++slot) {
+				fakeOverride.data[{ Node(slot), 9, 0 }] = legacyDefaultTexture;
+			}
+			const auto result = adapter.reconcile(actor, Target(Region::BodyVaginal), Settings{});
+			Expect(result.status == OverlayStatus::Applied && result.slotsApplied == 5,
+				"the legacy default diffuse path leaves RaceMenu slots available");
+		}
+
+		{
+			OverlayAdapter adapter;
+			Setup(adapter);
+			constexpr auto legacyDiffuse = "data\\textures\\slacs2\\Vaginal\\body01.dds";
+			fakeOverride.data[{ Node(0), 9, 0 }] = legacyDiffuse;
+			fakeOverride.data[{ Node(0), 9, 1 }] = "data\\textures\\slacs2\\Vaginal\\body01_n.dds";
+			fakeOverride.data[{ Node(0), 9, 2 }] = "data\\textures\\slacs2\\Vaginal\\body01_s.dds";
+			fakeOverride.data[{ Node(0), 8, 255 }] = 0.7F;
+			fakeOverride.data[{ Node(1), 9, 0 }] = "data\\textures\\slacs2_ube\\Vaginal\\body01.dds";
+
+			const auto result = adapter.reconcile(actor, Target(Region::BodyVaginal, 0), Settings{});
+			Expect(result.status == OverlayStatus::Applied, "cacheless migration cleanup completes");
+			Expect(std::get<std::string>(fakeOverride.data.at({ Node(0), 9, 0 })) == defaultTexture,
+				"cacheless cleanup recognizes legacy data\\textures\\slacs2 diffuse paths");
+			Expect(std::get<std::string>(fakeOverride.data.at({ Node(0), 9, 1 })).empty() &&
+				std::get<std::string>(fakeOverride.data.at({ Node(0), 9, 2 })).empty(),
+				"cacheless cleanup clears legacy owned normal and specular paths");
+			Expect(std::get<std::string>(fakeOverride.data.at({ Node(1), 9, 0 })) ==
+				"data\\textures\\slacs2_ube\\Vaginal\\body01.dds",
+				"migration cleanup leaves the separate slacs2_ube resource root untouched");
 		}
 	}
 
@@ -568,10 +638,12 @@ namespace
 int main()
 {
 	CheckApiCallMetrics();
+	CheckTextureResourcePreflight();
 	CheckDistinctLayerSlots();
 	CheckAppendingLayerPreservesSlots();
 	CheckUnchangedTargetRepairsLiveMaterial();
 	CheckBlankSlots();
+	CheckLegacyTexturePathClassification();
 	CheckRaceMenuCapacities();
 	CheckCapacityGrowth();
 	CheckPartialRetryAndReleasedSlots();

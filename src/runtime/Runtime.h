@@ -92,6 +92,7 @@ namespace slacs
 		void processMenuAction(const MenuAction& a_action, PumpReport& a_report);
 		void dispatchPPlusCompletion(const PPlusCompleted& a_command, PumpReport& a_report);
 		void applyChangeSet(const ChangeSet& a_change, PumpReport& a_report);
+		void reportOverlayFailure(const OverlayResult& a_result, std::size_t a_requested, PumpReport& a_report);
 		void sampleEnvironment(const GameTime& a_now, PumpReport& a_report);
 		void processDirtyVisuals(PumpReport& a_report, std::size_t a_maxTargets);
 		void processDirtyEffects(PumpReport& a_report, std::size_t a_maxTargets);
@@ -164,7 +165,13 @@ namespace slacs
 		RoundRobin<ActorId> actor3DCursor_;
 		RoundRobin<ActorId> environmentCursor_;
 		std::size_t environmentScanRemaining_{};
-		std::unordered_map<std::uint64_t, SteadyTime> capacityNoticeAt_;
+		struct OverlayNotice
+		{
+			SteadyTime reportedAt;
+			RuntimeDiagnosticCode code;
+			std::string resourcePath;
+		};
+		std::unordered_map<std::uint64_t, OverlayNotice> capacityNoticeAt_;
 		SteadyTime nextEnvironmentSample_{};
 		bool effectsReady_{};
 		RequestId nextRequestId_{ 1 };

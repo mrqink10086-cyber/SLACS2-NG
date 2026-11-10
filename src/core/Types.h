@@ -191,6 +191,7 @@ namespace slacs
 		SettingsRejected,
 		PersistenceFailure,
 		QueueOverloaded,
+		TextureUnavailable,
 	};
 
 	struct RuntimeDiagnostic
@@ -204,6 +205,11 @@ namespace slacs
 		std::optional<ActorId> actor;
 		std::optional<FormId> form;
 		std::optional<std::uint64_t> operationId;
+		std::optional<Region> region;
+		std::optional<std::uint32_t> slotsApplied;
+		std::optional<std::uint32_t> slotsRequested;
+		std::optional<std::uint32_t> overlayCapacity;
+		std::string resourcePath;
 	};
 
 	enum class DependencyKind : std::uint8_t

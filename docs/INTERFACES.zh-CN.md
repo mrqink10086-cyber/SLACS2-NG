@@ -77,14 +77,17 @@ flowchart LR
 ```cpp
 enum class RuntimeModule : std::uint8_t { Runtime, Ingress, PPlus, Core, Scheduler,
     Environment, Overlay, Effects, Settings, Menu, Persistence, Papyrus };
-enum class RuntimeDiagnosticCode : std::uint16_t { DependencyUnavailable, VersionMismatch,
+enum class RuntimeDiagnosticCode : std::uint8_t { DependencyUnavailable, VersionMismatch,
     InvalidNativeForm, ActorUnavailable, QueryFailed, QueryTimedOut, QueryCancelled,
     StaleEpoch, StaleRevision, CapacityUnavailable, AdapterFailure, SettingsRejected,
-    PersistenceFailure, QueueOverloaded };
+    PersistenceFailure, QueueOverloaded, TextureUnavailable };
 struct RuntimeDiagnostic { RuntimeModule module; RuntimeDiagnosticCode code;
     SessionEpoch epoch; std::optional<Tid> tid; std::optional<IngressSequence> sequence;
     std::optional<RequestId> requestId; std::optional<ActorId> actor;
-    std::optional<FormId> form; std::optional<std::uint64_t> operationId; };
+    std::optional<FormId> form; std::optional<std::uint64_t> operationId;
+    std::optional<Region> region; std::optional<std::uint32_t> slotsApplied;
+    std::optional<std::uint32_t> slotsRequested; std::optional<std::uint32_t> overlayCapacity;
+    std::string resourcePath; };
 enum class DependencyKind : std::uint8_t { Runtime1170, PPlus, RaceMenuV2,
     MenuFramework, RequiredForms };
 enum class DependencyStatus : std::uint8_t { Available, Missing, VersionMismatch };
@@ -327,7 +330,7 @@ CoreState 是唯一权威状态。Core 只处理传入的值，不调用引擎�
 enum class OverlayStatus : std::uint8_t { Applied, NoChange, DeferredNo3D,
     ApiUnavailable, NoOwnedCapacity, StaleRevision, InvalidTarget, Failed };
 enum class OverlayErrorCode : std::uint8_t { None, AbiMismatch, MissingProfile,
-    NoOwnedSlot, InvalidTarget, StaleRevision, ApiFailure };
+    NoOwnedSlot, InvalidTarget, StaleRevision, ApiFailure, MissingTexture };
 enum class EffectStatus : std::uint8_t { Applied, NoChange, DeferredActorUnavailable,
     ApiUnavailable, StaleRevision, Failed };
 enum class EffectErrorCode : std::uint8_t { None, MissingForm, StaleRevision, ApiFailure };
@@ -336,7 +339,7 @@ struct OverlayHandshake { enum class Status : std::uint8_t { Available, VersionM
                          std::uint32_t apiVersion; OverlayErrorCode error; };
 struct OverlayResult { OverlayStatus status; ActorId actor; Region region;
                        Revision revision; std::uint32_t slotsApplied;
-                       OverlayErrorCode error; };
+                       OverlayErrorCode error; std::string resourcePath; };
 struct EffectResult { EffectStatus status; ActorId actor; DesiredSpell desired;
                       Revision revision; EffectErrorCode error; };
 OverlayHandshake OverlayAdapter::initialize();
@@ -354,6 +357,8 @@ void Effects::clearSession(SessionEpoch epoch);
 Runtime 每次调用前经 ActorRegistry 获取临时 ActorLease；Overlay 要求 ActorWith3D，Effects 只要求 ActorOnly。无可用 lease 或适配器失败时保留完整 dirty 目标，并用 steady clock 为每项设置两秒冷却；冷却项不计入可执行积压。新目标、手动刷新和会话切换会更新或清除对应冷却；接受设置变更时清除旧冷却，立即应用由新设置导出的目标。适配器只在调用期间借用 lease，管理本插件拥有的槽位、键与法术。`clearSession` 仅清理适配器缓存，不访问正在卸载的世界；游戏执行阶段的正常清理通过空 RegionTarget/DesiredSpell 完成。失效通知只入队。
 
 OverlayAdapter 将 Region/LayerVisual 映射为材质 profile、槽位和差量操作。应用缓存同时检查业务 revision 与当前 3D 的修订；invalidateActor 清除该 actor 的已应用签名，使业务未变但 3D 重建时也会重画。按 `GetOverlayCount(Normal, location)` 扫描完整实际池，每域最多 127 槽，Body 四区域共享身体池并保护彼此已占用的槽。无 3D 时保留 dirty；容量不足只使用自有或空槽并返回 NoOwnedCapacity。稳定的 partial 目标不重复提交相同材质，但保留后续空槽恢复机会。错误通过 OverlayResult 返回，后续从完整逻辑目标重新 reconcile。
+
+Runtime 注入 `OverlayDependencies::textureExists`，通过 Skyrim 资源流检查虚拟路径，遵循 MO2 覆盖与 BSA。适配器在槽位清理、创建覆盖层和材质写入之前，检查默认 diffuse 及本次启用目标的 diffuse；无法读取则返回 `Failed/MissingTexture` 和 `resourcePath`，不执行本次写入。可选 normal/specular 使用同一资源查询。此检查不验证 DDS 解码或 GPU 渲染。容量和资源诊断携带区域、已应用/请求数量、实际域容量及失败路径；相同 actor/region 的相同诊断类型与路径每五秒最多上报一次，类型或路径变化立即上报。核心逻辑的层数上限单独显示，不能解释为 RaceMenu 容量不足。
 
 Effects 根据唯一 Core 派生值 reconcile 本插件 Spell；关闭效果会移除自身已应用的 Spell。其已应用值缓存只用于减少重复调用，load 后可丢弃并从 Core 重建。业务/菜单不直接读 `HasSpell` 作为层状态。
 

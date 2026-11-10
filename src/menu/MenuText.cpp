@@ -158,6 +158,8 @@ namespace slacs
 			return "存档读写失败";
 		case RuntimeDiagnosticCode::QueueOverloaded:
 			return "通知队列已满";
+		case RuntimeDiagnosticCode::TextureUnavailable:
+			return "贴图资源无法读取，已停止提交该区域";
 		}
 		return "未知诊断";
 	}
@@ -197,11 +199,31 @@ namespace slacs
 		std::string text{ "[" };
 		text += ModuleLabel(a_diagnostic.module);
 		text += "] ";
-		text += DiagnosticCodeLabel(a_diagnostic.code);
+		text += a_diagnostic.module == RuntimeModule::Core &&
+			a_diagnostic.code == RuntimeDiagnosticCode::CapacityUnavailable ?
+			"区域逻辑层数已达上限" : DiagnosticCodeLabel(a_diagnostic.code);
 
 		if (a_diagnostic.actor) {
 			text += "，角色 ";
 			text += std::to_string(*a_diagnostic.actor);
+		}
+		if (a_diagnostic.region) {
+			text += "，区域 ";
+			text += RegionLabel(*a_diagnostic.region);
+		}
+		if (a_diagnostic.slotsApplied && a_diagnostic.slotsRequested) {
+			text += "，已应用 ";
+			text += std::to_string(*a_diagnostic.slotsApplied);
+			text += '/';
+			text += std::to_string(*a_diagnostic.slotsRequested);
+		}
+		if (a_diagnostic.overlayCapacity) {
+			text += "，该域总槽数 ";
+			text += std::to_string(*a_diagnostic.overlayCapacity);
+		}
+		if (!a_diagnostic.resourcePath.empty()) {
+			text += "，路径 ";
+			text += a_diagnostic.resourcePath;
 		}
 		if (a_diagnostic.form && *a_diagnostic.form != kInvalidFormId) {
 			text += "，表单 ";

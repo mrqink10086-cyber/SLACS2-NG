@@ -7,7 +7,7 @@ SLACS2 NG 是 SLACS 2 的原生 C++ 重写：把原来由 Papyrus、StorageUtil�
 - 菜单改用 SKSE Menu Framework，单一入口、同页分组的全中文界面。
 - 面向新档设计，存档格式为版本化 co-save；全局配置在 `Data/SKSE/Plugins/SLACS2NG.json`。
 
-当前版本 **1.0.5**。自动目标支持全部成年女性 NPC；菜单可刷新已加载 NPC 或选择准星角色。新增覆盖层保留旧层槽位，只提交变化的材质。本次增加配置资源预算，并修复后台任务、覆盖层回调和菜单依赖读取的生命周期边界。**尚未在游戏内验收**，详见下方“验证状态”。
+当前版本 **1.0.6**。修复旧贴图路径和默认空槽的识别；提交前通过游戏资源系统检查贴图，无法读取时在菜单显示具体路径。容量诊断显示区域、实际应用数和域总容量，并区分逻辑层数上限。**蓝紫缺贴图的实机根因尚未确认**，宿主检查不代替游戏渲染验收。
 
 ## 功能
 
@@ -64,7 +64,7 @@ foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7
 py tools/release.py
 ```
 
-输出为 `artifacts/SLACS2NG-1.0.5/`、同名 ZIP 和文件清单。
+输出为 `artifacts/SLACS2NG-1.0.6/`、同名 ZIP 和文件清单。
 
 ## 安装
 

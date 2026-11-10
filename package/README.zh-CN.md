@@ -85,6 +85,8 @@ iNumOverlays=5
 
 插件扫描实际池中的空槽与自有槽，保留其他模组的材质。容量不足时优先显示区域内较新的层，未显示的逻辑层仍保留，并按两秒间隔重试。旧 JSON 的 `firstOwnedSlot` 和 `femaleTargetsRequirePlayerOrFollower` 会被忽略，下一次保存时移除。菜单刷新只枚举存活、成年且 3D 已加载的普通 NPC；列表缓存在连续数组中，不在每次 pump 扫描。自动目标与菜单共用种族判断：优先识别 `ActorTypeNPC`，未标记种族在没有 Creature/Dwarven/Animal 标记时也可选，兼容自定义类人种族。
 
+资源系统无法读取贴图时，菜单的“贴图资源无法读取”诊断会列出具体虚拟资源路径，该区域会停止本次材质提交。检查使用 Skyrim 资源系统，支持 MO2 的文件覆盖与 BSA 归档；资源可读取后的 DDS 解码和渲染故障仍需游戏内确认。容量诊断另列区域、已应用/请求层数及该域总槽数；“区域逻辑层数已达上限”只表示业务层数上限，不表示 RaceMenu 容量不足。最近诊断是历史记录，角色行的“显示降级”表示当前仍有待重试区域。
+
 ## 覆盖层与效果资源
 
 - 七个区域均有普通与 Mega 贴图：Face、BodyVaginal、BodyAnal、BodyBreast 各 12 个索引，BodyLegs、Hands、Feet 各 4 个。

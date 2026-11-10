@@ -37,6 +37,7 @@ namespace slacs
 		InvalidTarget,
 		StaleRevision,
 		ApiFailure,
+		MissingTexture,
 	};
 
 	enum class VisualInvalidation : std::uint8_t
@@ -68,6 +69,7 @@ namespace slacs
 		Revision revision{};
 		std::uint32_t slotsApplied{};
 		OverlayErrorCode error{ OverlayErrorCode::None };
+		std::string resourcePath;
 	};
 
 	struct OverlayDependencies
@@ -75,6 +77,7 @@ namespace slacs
 		std::function<std::filesystem::path()> dataRoot;
 		std::function<SessionEpoch()> epoch;
 		std::function<void(FormId, SessionEpoch)> installed;
+		std::function<bool(const std::string&)> textureExists;
 	};
 
 	class OverlayAdapter

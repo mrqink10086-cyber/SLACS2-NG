@@ -177,6 +177,25 @@ namespace
 		const auto formatted = slacs::FormatDiagnostic(diagnostic);
 		Check(formatted.find("菜单") != std::string::npos, "diagnostic module is translated");
 		Check(formatted.find("会话已变化") != std::string::npos, "diagnostic code is translated");
+		diagnostic.module = slacs::RuntimeModule::Core;
+		diagnostic.code = slacs::RuntimeDiagnosticCode::CapacityUnavailable;
+		const auto logicalCapacity = slacs::FormatDiagnostic(diagnostic);
+		Check(logicalCapacity.find("逻辑层数已达上限") != std::string::npos, "logical capacity has a distinct explanation");
+		Check(logicalCapacity.find("RaceMenu") == std::string::npos, "logical capacity does not blame RaceMenu");
+		diagnostic.module = slacs::RuntimeModule::Overlay;
+		Check(slacs::FormatDiagnostic(diagnostic).find("RaceMenu") != std::string::npos, "overlay capacity still identifies RaceMenu");
+		diagnostic.region = slacs::Region::Face;
+		diagnostic.slotsApplied = 0;
+		diagnostic.slotsRequested = 3;
+		diagnostic.overlayCapacity = 13;
+		const auto overlayCapacity = slacs::FormatDiagnostic(diagnostic);
+		Check(overlayCapacity.find("面部/口腔") != std::string::npos &&
+			overlayCapacity.find("0/3") != std::string::npos &&
+			overlayCapacity.find("总槽数 13") != std::string::npos, "capacity diagnostic identifies region and actual counts");
+		diagnostic.code = slacs::RuntimeDiagnosticCode::TextureUnavailable;
+		diagnostic.resourcePath = "textures\\slacs2\\Oral\\head1.dds";
+		Check(slacs::FormatDiagnostic(diagnostic).find(diagnostic.resourcePath) != std::string::npos,
+			"unavailable texture diagnostic includes its resource path");
 	}
 }
 

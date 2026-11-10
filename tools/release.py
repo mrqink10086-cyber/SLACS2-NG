@@ -26,7 +26,7 @@ PACKAGE = ROOT / "package" / "Data"
 README = ROOT / "package" / "README.zh-CN.md"
 RELEASE_NOTES = ROOT / "docs" / "release" / "RELEASE-NOTES.zh-CN.md"
 DEFAULT_OUTPUT = ROOT / "artifacts"
-DEFAULT_NAME = "SLACS2NG-1.0.5"
+DEFAULT_NAME = "SLACS2NG-1.0.6"
 
 REQUIRED_FILES = (
     "SKSE/Plugins/SLACS2 NG.dll",

@@ -111,6 +111,7 @@ namespace slacs
 			[this](FormId a_formId, SessionEpoch a_epoch) {
 				ingress_.post(RuntimeCommand{ OverlayInstalled{ a_formId, a_epoch } });
 			},
+			[](const std::string& a_path) { return RE::BSResourceNiBinaryStream(a_path).good(); },
 		});
 	}
 
@@ -1364,6 +1365,7 @@ namespace slacs
 			runtime.module = RuntimeModule::Core;
 			runtime.epoch = epoch();
 			runtime.actor = diagnostic.actor;
+			runtime.region = diagnostic.region;
 			switch (diagnostic.code) {
 			case CoreDiagnosticCode::AtCapacity:
 				runtime.code = RuntimeDiagnosticCode::CapacityUnavailable;
@@ -1400,6 +1402,7 @@ namespace slacs
 			const auto result = overlay_.reconcile(*lease, target, settings_);
 			++perfOverlaySubmits_;
 			perfOverlaySlots_ += result.slotsApplied;
+			reportOverlayFailure(result, target.layers.size(), a_report);
 			if (result.status == OverlayStatus::Applied || result.status == OverlayStatus::NoChange ||
 				result.status == OverlayStatus::StaleRevision) {
 				dirtyVisuals_.erase(key);
@@ -1411,23 +1414,11 @@ namespace slacs
 				result.status == OverlayStatus::ApiUnavailable) {
 				dirtyVisuals_[key] = target;
 				scheduleOverlayRetry(target.actor, target.region);
-				if (result.status == OverlayStatus::NoOwnedCapacity) {
-					const auto now = std::chrono::steady_clock::now();
-					auto [notice, inserted] = capacityNoticeAt_.try_emplace(key, now);
-					if (inserted || now - notice->second >= std::chrono::seconds(5)) {
-						notice->second = now;
-						RuntimeDiagnostic runtime{};
-						runtime.module = RuntimeModule::Overlay;
-						runtime.code = RuntimeDiagnosticCode::CapacityUnavailable;
-						runtime.epoch = epoch();
-						runtime.actor = target.actor;
-						a_report.diagnostics.push_back(runtime);
-						logs::warn("Overlay slots exhausted actor={} region={} applied={}",
-							target.actor,
-							static_cast<int>(target.region),
-							result.slotsApplied);
-					}
-				}
+				continue;
+			}
+			if (result.error == OverlayErrorCode::MissingTexture) {
+				dirtyVisuals_[key] = target;
+				scheduleOverlayRetry(target.actor, target.region);
 				continue;
 			}
 			if (result.status != OverlayStatus::Applied && result.status != OverlayStatus::NoChange) {
@@ -1498,6 +1489,36 @@ namespace slacs
 		applyDeadlineIntents(a_change, a_report);
 	}
 
+	void Runtime::reportOverlayFailure(const OverlayResult& a_result, std::size_t a_requested, PumpReport& a_report)
+	{
+		if (a_result.status != OverlayStatus::NoOwnedCapacity && a_result.error != OverlayErrorCode::MissingTexture) return;
+		const auto key = (a_result.actor << 3) | static_cast<std::uint64_t>(RegionIndex(a_result.region));
+		const auto now = std::chrono::steady_clock::now();
+		const auto code = a_result.error == OverlayErrorCode::MissingTexture ?
+			RuntimeDiagnosticCode::TextureUnavailable : RuntimeDiagnosticCode::CapacityUnavailable;
+		auto [notice, inserted] = capacityNoticeAt_.try_emplace(key, OverlayNotice{ now, code, a_result.resourcePath });
+		if (!inserted && notice->second.code == code && notice->second.resourcePath == a_result.resourcePath &&
+			now - notice->second.reportedAt < std::chrono::seconds{ 5 }) return;
+		notice->second = { now, code, a_result.resourcePath };
+		RuntimeDiagnostic diagnostic{};
+		diagnostic.module = RuntimeModule::Overlay;
+		diagnostic.code = code;
+		diagnostic.epoch = epoch();
+		diagnostic.actor = a_result.actor;
+		diagnostic.region = a_result.region;
+		diagnostic.slotsApplied = a_result.slotsApplied;
+		diagnostic.slotsRequested = static_cast<std::uint32_t>(a_requested);
+		const auto capacities = overlay_.capacities();
+		const auto domain = a_result.region == Region::Face ? 1U :
+			a_result.region == Region::Hands ? 2U : a_result.region == Region::Feet ? 3U : 0U;
+		diagnostic.overlayCapacity = capacities[domain];
+		diagnostic.resourcePath = a_result.resourcePath;
+		a_report.diagnostics.push_back(diagnostic);
+		logs::warn("Overlay unavailable actor={} region={} applied={}/{} capacity={} resource={}",
+			a_result.actor, static_cast<int>(a_result.region), a_result.slotsApplied, a_requested,
+			capacities[domain], a_result.resourcePath);
+	}
+
 	void Runtime::processDirtyVisuals(PumpReport& a_report, std::size_t a_maxTargets)
 	{
 		// A loaded save restores node overrides from RaceMenu's co-save before
@@ -1553,6 +1574,7 @@ namespace slacs
 			const auto result = overlay_.reconcile(*lease, target, settings_);
 			++perfOverlaySubmits_;
 			perfOverlaySlots_ += result.slotsApplied;
+			reportOverlayFailure(result, target.layers.size(), a_report);
 			if (result.status != OverlayStatus::Applied && result.status != OverlayStatus::NoChange &&
 				result.status != OverlayStatus::StaleRevision) {
 				scheduleOverlayRetry(target.actor, target.region);
@@ -1994,7 +2016,12 @@ namespace slacs
 				menuDiagnostics_.back().module == diagnostic.module &&
 				menuDiagnostics_.back().code == diagnostic.code &&
 				menuDiagnostics_.back().actor == diagnostic.actor &&
-				menuDiagnostics_.back().form == diagnostic.form;
+				menuDiagnostics_.back().form == diagnostic.form &&
+				menuDiagnostics_.back().region == diagnostic.region &&
+				menuDiagnostics_.back().slotsApplied == diagnostic.slotsApplied &&
+				menuDiagnostics_.back().slotsRequested == diagnostic.slotsRequested &&
+				menuDiagnostics_.back().overlayCapacity == diagnostic.overlayCapacity &&
+				menuDiagnostics_.back().resourcePath == diagnostic.resourcePath;
 			if (!duplicate) {
 				menuDiagnostics_.push_back(diagnostic);
 				while (menuDiagnostics_.size() > 32) {
