@@ -2,7 +2,11 @@
 
 #include "runtime/ActorRegistry.h"
 #include <array>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <map>
+#include <mutex>
 #include <string>
 #include <tuple>
 #include <variant>
@@ -12,12 +16,22 @@ using skee_i32 = std::int32_t;
 class IOverlayInterface
 {
 public:
+	using InstallCallback = void(*)(RE::TESObjectREFR*, RE::NiAVObject*);
+
 	enum class OverlayType { Normal, Spell };
 	enum class OverlayLocation { Body, Hand, Feet, Face };
 	std::array<unsigned, 4> counts{ 6, 3, 3, 3 };
 	unsigned countCalls{};
 	unsigned formatCalls{};
 	unsigned addOverlaysCalls{};
+	std::mutex callbackMutex;
+	std::mutex callbackStateMutex;
+	std::condition_variable callbackStateChanged;
+	std::string callbackKey;
+	InstallCallback installCallback{};
+	std::atomic<unsigned> registerCalls{};
+	std::atomic<unsigned> unregisterAttempts{};
+	std::atomic<unsigned> unregisterCalls{};
 	unsigned GetOverlayCount(OverlayType, OverlayLocation a_location)
 	{
 		++countCalls;
@@ -40,7 +54,52 @@ public:
 		}
 		return "";
 	}
-	bool RegisterInstallCallback(const char*, void(*)(RE::TESObjectREFR*, RE::NiAVObject*)) { return true; }
+	bool RegisterInstallCallback(const char* a_key, InstallCallback a_callback)
+	{
+		std::lock_guard lock(callbackMutex);
+		++registerCalls;
+		callbackKey = a_key ? a_key : "";
+		installCallback = a_callback;
+		return true;
+	}
+	bool UnregisterInstallCallback(const char* a_key)
+	{
+		{
+			std::lock_guard lock(callbackStateMutex);
+			++unregisterAttempts;
+		}
+		callbackStateChanged.notify_all();
+		std::lock_guard lock(callbackMutex);
+		if (!a_key || callbackKey != a_key) return false;
+		callbackKey.clear();
+		installCallback = nullptr;
+		++unregisterCalls;
+		return true;
+	}
+	InstallCallback SnapshotInstallCallback()
+	{
+		std::lock_guard lock(callbackMutex);
+		return installCallback;
+	}
+	void InvokeInstallCallback(RE::TESObjectREFR* a_reference, RE::NiAVObject* a_node)
+	{
+		std::lock_guard lock(callbackMutex);
+		if (installCallback) installCallback(a_reference, a_node);
+	}
+	bool WaitForUnregisterAttempt(std::chrono::milliseconds a_timeout)
+	{
+		std::unique_lock lock(callbackStateMutex);
+		return callbackStateChanged.wait_for(lock, a_timeout, [&] { return unregisterAttempts.load() != 0; });
+	}
+	void ResetCallbacksForTesting()
+	{
+		std::lock_guard lock(callbackMutex);
+		callbackKey.clear();
+		installCallback = nullptr;
+		registerCalls = 0;
+		unregisterAttempts = 0;
+		unregisterCalls = 0;
+	}
 	void AddOverlays(RE::TESObjectREFR*, bool) { ++addOverlaysCalls; }
 };
 

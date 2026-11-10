@@ -98,7 +98,7 @@ iNumOverlays=5
 | 项目 | 状态 | 证据 |
 | --- | --- | --- |
 | 构建 DLL/PEX/ESP/资源 | 构建完成 | `xmake build -y "SLACS2 NG"`；`tools/package.py` 核对 ESP、264 张贴图、字体与 VMAD |
-| 逻辑/时钟/序列化/适配器检查 | 构建完成 | 12 个宿主检查通过，包括 NPC 候选、贴图叠层与重试调度 |
+| 逻辑/时钟/序列化/适配器检查 | 构建完成 | 14 个宿主检查通过，包括 NPC 候选、贴图叠层、重试调度、后台停机和真实 P+ adapter 回调 |
 | 菜单动作贯通 UI → Runtime → Core → 外观/效果 | 待游戏验收 | 代码路径、静态审核和界面文本已核对；需 1170 实机点击 |
 | 中文显示、缺字、字体重建 | 构建完成 | `tools/verify_chinese_font.py --strict` 覆盖菜单/宿主字符串/README |
 | 配置重启生效、读档保持全局设置 | 待游戏验收 | 单元测试覆盖 load/save/roundtrip；实机重启与读档待执行 |
@@ -113,7 +113,7 @@ iNumOverlays=5
 - 需要 RaceMenu 槽位调整；默认 6/3/3/3 且 `bPlayerOnly=1` 时只能显示部分区域。
 - 未集成 BiS/DnB；没有外部信号适配器时不产生对应效果或覆盖。
 - 保存快照可能比最新一次 pump 晚一拍；保存回调不等待 VM、任务或材质。
-- 没有自动 `Runtime::shutdown` 消息处理；进程退出由 SKSE 回收。
+- Runtime 析构先关闭入口、停止后台任务并关闭 P+/RaceMenu 回调，再销毁运行状态；不支持在游戏运行中热卸载 DLL。
 - 旧 Papyrus 通知不带会话令牌；换档瞬间的极旧事件可能被 epoch 拒绝，但不会跨档加层。
 
 ## 目录结构

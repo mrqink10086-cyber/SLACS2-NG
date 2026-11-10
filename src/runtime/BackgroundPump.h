@@ -1,9 +1,10 @@
 #pragma once
 
-#include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <thread>
 
@@ -26,15 +27,13 @@ namespace slacs
 		void requestAfter(std::chrono::milliseconds a_delay);
 
 	private:
-		void run();
+		struct Control;
 
-		Tick tick_;
+		static void run(std::shared_ptr<Control> a_control, std::uint64_t a_generation);
+		static void runQueuedTask(std::shared_ptr<Control> a_control, std::uint64_t a_generation);
+
+		std::shared_ptr<Control> control_;
+		std::mutex lifecycleMutex_;
 		std::jthread thread_;
-		std::mutex mutex_;
-		std::condition_variable condition_;
-		std::atomic<bool> stopping_{ false };
-		bool wakeRequested_{};
-		std::chrono::steady_clock::time_point due_{};
-		std::atomic<bool> taskPending_{ false };
 	};
 }

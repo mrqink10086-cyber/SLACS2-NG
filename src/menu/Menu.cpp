@@ -479,7 +479,7 @@ namespace slacs
 
 			api().separator();
 			Text("依赖与资源");
-			const auto& dependencies = Runtime::instance().dependencies();
+			const auto& dependencies = snapshot.dependencies;
 			for (const auto& check : dependencies.checks) {
 				std::string line{ DependencyLabel(check.dependency) };
 				line += "：";

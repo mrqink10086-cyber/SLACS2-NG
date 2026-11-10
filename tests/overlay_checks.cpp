@@ -3,11 +3,15 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <condition_variable>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <string_view>
+#include <thread>
 #include <variant>
 #include <vector>
 
@@ -460,6 +464,105 @@ namespace
 				"restore preserves foreign diffuse, normal and material overrides");
 		}
 	}
+
+	void CheckDestructorWaitsForInstallCallback()
+	{
+		fakeOverlay.ResetCallbacksForTesting();
+		auto adapter = std::make_unique<OverlayAdapter>();
+		Setup(*adapter);
+
+		std::mutex callbackMutex;
+		std::condition_variable callbackChanged;
+		bool callbackEntered{};
+		bool releaseCallback{};
+		unsigned installedCalls{};
+		adapter->setDependencies({
+			[] { return std::filesystem::path("."); },
+			[] { return SessionEpoch{ 1 }; },
+			[&](FormId, SessionEpoch) {
+				++installedCalls;
+				std::unique_lock lock(callbackMutex);
+				callbackEntered = true;
+				callbackChanged.notify_all();
+				callbackChanged.wait(lock, [&] { return releaseCallback; });
+			},
+		});
+		Expect(adapter->initialize().status == OverlayHandshake::Status::Available,
+			"callback lifetime fixture initializes RaceMenu API");
+		const auto callback = fakeOverlay.SnapshotInstallCallback();
+		Expect(callback != nullptr, "install callback is registered");
+
+		std::thread dispatch([&] { fakeOverlay.InvokeInstallCallback(actor.actor.get(), actor.root.get()); });
+		bool enteredCallback{};
+		{
+			std::unique_lock lock(callbackMutex);
+			enteredCallback = callbackChanged.wait_for(lock, std::chrono::seconds(1), [&] { return callbackEntered; });
+			Expect(enteredCallback, "install callback entered before adapter destruction");
+			if (!enteredCallback) releaseCallback = true;
+		}
+		callbackChanged.notify_all();
+		if (!enteredCallback) {
+			dispatch.join();
+			adapter.reset();
+			return;
+		}
+
+		std::mutex stopMutex;
+		std::condition_variable stopChanged;
+		bool destructionReturned{};
+		std::thread destroy([&] {
+			adapter.reset();
+			{
+				std::lock_guard lock(stopMutex);
+				destructionReturned = true;
+			}
+			stopChanged.notify_all();
+		});
+
+		const bool unregisterStarted = fakeOverlay.WaitForUnregisterAttempt(std::chrono::seconds(1));
+		Expect(unregisterStarted, "destructor unregisters the install callback");
+		if (unregisterStarted && callback) {
+			callback(actor.actor.get(), actor.root.get());
+		}
+		{
+			std::unique_lock lock(stopMutex);
+			const bool returnedEarly = stopChanged.wait_for(lock, std::chrono::milliseconds(50), [&] { return destructionReturned; });
+			Expect(!returnedEarly, "destructor waits while an install callback holds its owner");
+		}
+
+		{
+			std::lock_guard lock(callbackMutex);
+			releaseCallback = true;
+		}
+		callbackChanged.notify_all();
+		dispatch.join();
+		destroy.join();
+		Expect(installedCalls == 1, "late callback after stop begins is a no-op");
+		Expect(fakeOverlay.unregisterCalls == 1, "install callback registration is removed exactly once");
+		Expect(fakeOverlay.SnapshotInstallCallback() == nullptr, "RaceMenu no longer retains the callback after destruction");
+	}
+
+	void CheckExplicitShutdownUnregistersCallback()
+	{
+		fakeOverlay.ResetCallbacksForTesting();
+		OverlayAdapter adapter;
+		Setup(adapter);
+		unsigned installedCalls{};
+		adapter.setDependencies({
+			[] { return std::filesystem::path("."); },
+			[] { return SessionEpoch{ 1 }; },
+			[&](FormId, SessionEpoch) { ++installedCalls; },
+		});
+		Expect(adapter.initialize().status == OverlayHandshake::Status::Available,
+			"explicit shutdown fixture initializes RaceMenu API");
+		const auto callback = fakeOverlay.SnapshotInstallCallback();
+		adapter.shutdown();
+		adapter.shutdown();
+		Expect(fakeOverlay.unregisterCalls == 1, "explicit shutdown is idempotent and unregisters once");
+		Expect(fakeOverlay.SnapshotInstallCallback() == nullptr, "explicit shutdown removes RaceMenu callback");
+		if (callback) callback(actor.actor.get(), actor.root.get());
+		Expect(installedCalls == 0, "a saved callback invoked after shutdown is a no-op");
+	}
 }
 
 int main()
@@ -477,6 +580,8 @@ int main()
 	CheckForeignTakeover();
 	CheckForeignMaterialKeys();
 	CheckRestoredCleanup();
+	CheckDestructorWaitsForInstallCallback();
+	CheckExplicitShutdownUnregistersCallback();
 	if (failures == 0) std::cout << "SLACS2 NG overlay checks passed\n";
 	return failures == 0 ? 0 : 1;
 }

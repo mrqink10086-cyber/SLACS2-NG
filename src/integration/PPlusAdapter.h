@@ -55,6 +55,7 @@ namespace slacs
 		PPlusAdapter& operator=(const PPlusAdapter&) = delete;
 
 		void setDependencies(PPlusDependencies a_dependencies);
+		void shutdown();
 
 		[[nodiscard]] QueryStart begin(const OrgasmQuery& a_request);
 		bool cancel(RequestId a_requestId, SessionEpoch a_epoch) noexcept;
@@ -78,11 +79,12 @@ namespace slacs
 		void fail(const std::shared_ptr<RequestState>& a_state, PPlusFailureCode a_code);
 		void finalize(const std::shared_ptr<RequestState>& a_state);
 		bool complete(const std::shared_ptr<RequestState>& a_state);
-		void requestPump();
+		void requestPump() noexcept;
 
 		mutable std::mutex mutex_;
 		std::shared_ptr<CallbackGate> callbackGate_;
 		PPlusDependencies dependencies_;
+		bool closed_{};
 		std::unordered_map<RequestId, std::shared_ptr<RequestState>> requests_;
 		std::uint64_t nextRequestId_{ 1 };
 	};

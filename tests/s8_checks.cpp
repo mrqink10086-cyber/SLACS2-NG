@@ -102,6 +102,8 @@ namespace
 		published.revision = 3;
 		published.sessionReady = true;
 		published.settings.overlayOpacity = 0.25F;
+		published.dependencies.ready = true;
+		published.dependencies.checks.push_back(slacs::DependencyCheck{});
 		published.settingsFeedback.apply = slacs::SettingsApplyStatus::Applied;
 		published.settingsFeedback.write = slacs::SettingsWriteStatus::Saved;
 		published.actors.push_back(slacs::TrackedActorRow{
@@ -124,6 +126,8 @@ namespace
 		Check(snapshot->revision == 3, "snapshot revision is visible");
 		Check(snapshot->sessionReady, "snapshot session state is visible");
 		Check(snapshot->settings.overlayOpacity == 0.25F, "snapshot settings are visible");
+		Check(snapshot->dependencies.ready && snapshot->dependencies.checks.size() == 1,
+			"snapshot owns the dependency report");
 		Check(snapshot->actors.size() == 1, "snapshot actor rows are visible");
 		if (!snapshot->actors.empty()) {
 			Check(snapshot->actors.front().displayName == "测试角色", "snapshot owns actor display name");
@@ -140,6 +144,8 @@ namespace
 		Check(empty->epoch == 0 && empty->actors.empty(), "new snapshot replaces the old one");
 		Check(empty != snapshot && snapshot->actors.front().displayName == "测试角色",
 			"a reader retains its previous snapshot across publication");
+		Check(empty->dependencies.checks.empty() && snapshot->dependencies.checks.size() == 1,
+			"publishing dependencies preserves reports held by existing readers");
 	}
 
 	void TestFeedbackText()

@@ -4,10 +4,13 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <cctype>
 #include <cmath>
+#include <cstddef>
+#include <condition_variable>
+#include <mutex>
 #include <string_view>
+#include <utility>
 
 namespace slacs
 {
@@ -188,15 +191,40 @@ namespace slacs
 			return result;
 		}
 
-		std::atomic<OverlayAdapter*> g_active{};
+		struct InstallCallbackGate
+		{
+			std::mutex mutex;
+			std::condition_variable drained;
+			OverlayAdapter* owner{};
+			std::size_t active{};
+			bool accepting{};
+		};
+
+		// Runtime is constructed after namespace-scope objects, so its destructor can
+		// drain this gate before the gate itself is destroyed during process teardown.
+		InstallCallbackGate g_installCallbackGate;
+
+		void closeInstallCallbackGate(OverlayAdapter* a_owner)
+		{
+			std::lock_guard lock(g_installCallbackGate.mutex);
+			if (g_installCallbackGate.owner == a_owner) {
+				g_installCallbackGate.accepting = false;
+				g_installCallbackGate.owner = nullptr;
+			}
+		}
+
+		void waitForInstallCallbacks()
+		{
+			std::unique_lock lock(g_installCallbackGate.mutex);
+			g_installCallbackGate.drained.wait(lock, [] { return g_installCallbackGate.active == 0; });
+		}
 	}
 
 	OverlayAdapter::OverlayAdapter() = default;
 
 	OverlayAdapter::~OverlayAdapter()
 	{
-		OverlayAdapter* expected = this;
-		(void)g_active.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel);
+		shutdown();
 	}
 
 	void OverlayAdapter::setDependencies(OverlayDependencies a_dependencies)
@@ -206,7 +234,18 @@ namespace slacs
 
 	OverlayHandshake OverlayAdapter::initialize()
 	{
+		std::lock_guard lifecycleLock(callbackLifecycleMutex_);
 		OverlayHandshake handshake;
+		if (shutdown_) {
+			handshake.error = OverlayErrorCode::ApiFailure;
+			return handshake;
+		}
+		if (callbackRegistered_) {
+			handshake.status = OverlayHandshake::Status::Available;
+			handshake.apiVersion = api_.version();
+			handshake.error = OverlayErrorCode::None;
+			return handshake;
+		}
 		if (!api_.initialize()) {
 			handshake.status = api_.version() > 0 ? OverlayHandshake::Status::VersionMismatch : OverlayHandshake::Status::Unavailable;
 			handshake.apiVersion = api_.version();
@@ -218,13 +257,46 @@ namespace slacs
 		handshake.apiVersion = api_.version();
 		handshake.error = OverlayErrorCode::None;
 
-		g_active.store(this, std::memory_order_release);
 		auto* overlay = static_cast<::IOverlayInterface*>(api_.overlay());
-		if (!overlay->RegisterInstallCallback("SLACS2NG", &OverlayAdapter::installCallback)) {
+		bool gateClaimed{};
+		{
+			std::lock_guard gateLock(g_installCallbackGate.mutex);
+			if (!g_installCallbackGate.owner || g_installCallbackGate.owner == this) {
+				g_installCallbackGate.owner = this;
+				g_installCallbackGate.accepting = true;
+				gateClaimed = true;
+			}
+		}
+		if (!gateClaimed) {
+			logs::warn("RaceMenu install callback registration failed (another adapter owns the callback gate)");
+		} else if (!overlay->RegisterInstallCallback("SLACS2NG", &OverlayAdapter::installCallback)) {
+			closeInstallCallbackGate(this);
+			waitForInstallCallbacks();
 			logs::warn("RaceMenu install callback registration failed (key may already be in use)");
+		} else {
+			callbackRegistered_ = true;
 		}
 		logs::info("Overlay texture profile UBE is unavailable (textures/slacs2_ube is missing)");
 		return handshake;
+	}
+
+	void OverlayAdapter::shutdown() noexcept
+	{
+		std::lock_guard lifecycleLock(callbackLifecycleMutex_);
+		if (shutdown_) {
+			return;
+		}
+		shutdown_ = true;
+
+		closeInstallCallbackGate(this);
+		const bool unregisterCallback = std::exchange(callbackRegistered_, false);
+		auto* overlay = unregisterCallback ? static_cast<::IOverlayInterface*>(api_.overlay()) : nullptr;
+		if (overlay) {
+			// RaceMenu may hold its callback-dispatch lock here. Never keep our gate
+			// locked across this call; an entered callback must be able to retire.
+			(void)overlay->UnregisterInstallCallback("SLACS2NG");
+		}
+		waitForInstallCallbacks();
 	}
 
 	bool OverlayAdapter::available() const
@@ -248,16 +320,39 @@ namespace slacs
 
 	void OverlayAdapter::installCallback(RE::TESObjectREFR* a_reference, RE::NiAVObject*)
 	{
-		auto* self = g_active.load(std::memory_order_acquire);
-		if (!self || !a_reference || !self->dependencies_.installed) {
+		OverlayAdapter* self{};
+		{
+			std::lock_guard lock(g_installCallbackGate.mutex);
+			if (!g_installCallbackGate.accepting || !g_installCallbackGate.owner) {
+				return;
+			}
+			self = g_installCallbackGate.owner;
+			++g_installCallbackGate.active;
+		}
+		struct CallbackExit
+		{
+			~CallbackExit()
+			{
+				std::lock_guard lock(g_installCallbackGate.mutex);
+				if (--g_installCallbackGate.active == 0) {
+					g_installCallbackGate.drained.notify_all();
+				}
+			}
+		} callbackExit;
+
+		if (!a_reference) {
+			return;
+		}
+		const auto installed = self->dependencies_.installed;
+		if (!installed) {
 			return;
 		}
 		const auto formId = a_reference->GetFormID();
 		if (formId == 0) {
 			return;
 		}
-		const auto epoch = self->dependencies_.epoch ? self->dependencies_.epoch() : 0;
-		self->dependencies_.installed(formId, epoch);
+		const auto epoch = self->dependencies_.epoch;
+		installed(formId, epoch ? epoch() : 0);
 	}
 
 	OverlayResult OverlayAdapter::reconcile(const ActorLease& a_actor, const RegionTarget& a_target, const Settings& a_settings)

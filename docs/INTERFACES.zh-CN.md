@@ -210,20 +210,20 @@ void PPlusAdapter::cancelEpoch(SessionEpoch epoch) noexcept;
 std::uint32_t PPlusAdapter::poll(SteadyTime now, std::size_t maxCallbacks);
 ```
 
-`OrgasmQuery` 字段：`{ RequestId requestId; FormId sourceFormId; ActorId source; Tid tid; IngressSequence sequence; SessionEpoch epoch; }`。P+ VM callback 复制必要 FormID/数字到 adapter 自有的值缓冲；在游戏执行阶段 ActorRegistry 将有效参与者绑定为 ActorId，再生成 `ResolvedOrgasm`。只有完整查询成功才返回 targets；不完整、方向未知或参与者失效不能猜测区域，按失败结束请求。
+`OrgasmQuery` 字段：`{ RequestId requestId; FormId sourceFormId; ActorId source; Tid tid; IngressSequence sequence; SessionEpoch epoch; }`。P+ VM callback 复制数字结果或持有返回 Variable；参与者数组在游戏线程 poll 中解析，取得角色拥有型句柄后读取 FormID，再由 ActorRegistry 绑定为 ActorId 并生成 `ResolvedOrgasm`。只有完整查询成功才返回 targets；不完整、方向未知或参与者失效不能猜测区域，按失败结束请求。
 
 | 结果/错误 | 契约 |
 | --- | --- |
 | `QueryStart::{Accepted, RejectedNotRunning, RejectedUnavailable, RejectedCapacity}` | 同步启动结果。非 `Accepted` 不会再发异步完成。 |
 | `PPlusFailure::code` | 使用上表 `PPlusFailureCode`；附 requestId/epoch/tid/sequence 供诊断。 |
-| 完成 | 每个 Accepted request 产生一个 `PPlusCompleted` 终态；callback 只写 adapter 拥有的值缓冲，`poll` 在游戏执行阶段绑定参与者、汇总并入队。 |
+| 完成 | 每个 Accepted request 产生一个 `PPlusCompleted` 终态；callback 只更新 adapter 请求状态及持有的返回 Variable，`poll` 在游戏执行阶段绑定参与者、汇总并入队。 |
 | 取消 | `cancel` 幂等；发一个 `Cancelled` 终态。Runtime 先关闭/递增 epoch，再调用 `cancelEpoch(oldEpoch)`；终结后的旧 VM callback 丢弃。 |
 | 晚到结果 | Runtime 先检查 requestId、epoch、tid 活动状态；不匹配时丢弃，不能触发加层。 |
 | 合法重复高潮 | 同一 tid/source 的不同 ingress sequence 是不同业务事件；不得按 actor/tid 或时间窗合并。 |
 
 adapter 在 `begin` 时为终态预留 Ingress 容量，容量不足同步拒绝；取消和正常完成竞争时只交付一次。Runtime 以同 tid 的 ingress sequence 建立有序待处理队列：较晚查询先完成时缓存结果，等较早请求终结后再交给 Core。拒绝启动的请求不占等待槽，不同 tid 独立推进。首版查询超时固定为 5 个 steady 秒；`poll` 同时收取 VM 返回值和处理超时。
 
-VM callback 更新状态、释放请求锁后，通过线程安全的 wake 通知 BackgroundPump；唤醒仅安排游戏执行阶段的任务，不在 callback 线程 dispatch 下一次 VM 调用。CallbackGate 覆盖通知期间的 adapter 生命周期。等待请求仍保留 50ms 轮询，负责超时、取消及通知遗漏后的推进。
+VM callback 更新状态、释放请求锁后，通过线程安全的 wake 通知 BackgroundPump；唤醒仅安排游戏执行阶段的任务，不在 callback 线程 dispatch 下一次 VM 调用。Positions 返回的 Variable 由请求持有，在下一次游戏线程 poll 中解析 Actor、取得拥有型句柄并读取 FormID。CallbackGate 覆盖通知期间的 adapter 生命周期，shutdown 关闭入口并释放待处理请求。等待请求仍保留 50ms 轮询，负责超时、取消及通知遗漏后的推进。
 
 Runtime 将成功 outcome 翻译成 `CoreOp::AddLayers`；失败记录可诊断原因，不改变逻辑层。Scene End、读档、新游戏、P+ 查询超时都取消未完成请求。P+ 多个 VM callback 不组成同步快照；如完整结果不再可得，返回失败，不拼接跨请求数据。
 
@@ -411,6 +411,8 @@ Runtime load 流程：Begin 关闭并递增 epoch、取消查询/deadline；load
 
 配置文件唯一位置为 `Data/SKSE/Plugins/SLACS2NG.json`，UTF-8。`Settings::load(path)` 返回已验证新快照和诊断；`Settings::save(path, settings)` 只在用户明确“应用并保存”时写盘。菜单回调不写文件、不调用引擎、VM、RaceMenu 或等待队列。
 
+读取预算为 64 KiB、1024 个 JSON 节点、每对象或数组 64 项；未知或兼容忽略字段也计入预算。超限在继续构建树之前返回无效配置，嵌套深度规则不变。
+
 ```cpp
 struct ApplySettings { Settings value; bool saveToDisk; SessionEpoch epoch; };
 struct ClearActor { ActorId actor; SessionEpoch epoch; };
@@ -424,14 +426,18 @@ using MenuAction = std::variant<ApplySettings, ClearActor, RefreshActor, TestAdd
                                 RefreshActorCandidates, SelectCrosshairActor>;
 
 struct TrackedActorRow { ActorId actor; FormId formId; std::string displayName;
-    std::array<std::uint8_t, 7> layers; bool has3D; bool visualDegraded; };
+    std::array<std::uint8_t, 7> layers; bool has3D; bool visualDegraded;
+    bool tracked; bool isFemale; bool isPlayer; };
 struct DiagnosticRow { RuntimeDiagnostic diagnostic; std::string text; };
 enum class SettingsApplyStatus : std::uint8_t { Unchanged, Applied, Rejected };
 enum class SettingsWriteStatus : std::uint8_t { NotRequested, Saved, Failed };
 struct SettingsFeedback { SettingsApplyStatus apply; SettingsWriteStatus write;
                           std::vector<SettingsIssue> issues; };
 struct MenuSnapshot { SessionEpoch epoch; Revision revision; bool sessionReady;
-    Settings settings; SettingsFeedback settingsFeedback; std::vector<TrackedActorRow> actors;
+    std::array<std::uint32_t, 4> overlayCapacities; Settings settings;
+    DependencyReport dependencies; SettingsFeedback settingsFeedback;
+    std::vector<TrackedActorRow> actors; ActorId selectedCandidate;
+    Revision selectionRevision; std::string actorFeedback;
     std::vector<DiagnosticRow> diagnostics; };
 
 void Menu::publish(MenuSnapshot snapshot);

@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -86,6 +87,7 @@ namespace slacs
 
 		void setDependencies(OverlayDependencies a_dependencies);
 		OverlayHandshake initialize();
+		void shutdown() noexcept;
 		OverlayResult reconcile(const ActorLease& a_actor, const RegionTarget& a_target, const Settings& a_settings);
 		void invalidateActor(ActorId a_actor, VisualInvalidation a_reason);
 		void clearActor(const ActorLease& a_actor, ActorId a_actorId);
@@ -166,6 +168,9 @@ namespace slacs
 
 		OverlayDependencies dependencies_;
 		RaceMenuApi api_;
+		std::mutex callbackLifecycleMutex_;
+		bool shutdown_{};
+		bool callbackRegistered_{};
 		std::unordered_map<std::uint64_t, AppliedRegion> applied_;
 		std::unordered_map<ActorId, SessionEpoch> initializedActors_;
 		std::unordered_map<ActorId, std::uint8_t> restoredDomains_;

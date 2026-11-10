@@ -1,4 +1,15 @@
-# SLACS2 NG 1.0.4 发布说明
+# SLACS2 NG 1.0.5 发布说明
+
+2026-11-10，包名 `SLACS2NG-1.0.5`。
+
+- 配置读取限制为 64 KiB、1024 个 JSON 节点及每容器 64 项，在创建超额数据前拒绝输入；旧字段迁移和嵌套深度规则保留。
+- 后台任务使用独立共享控制状态和启动代数；停止后已排队任务不再访问 Runtime，外部停止会等待正在执行的 tick 完成。
+- 覆盖层停机先关闭回调入口，再注销 RaceMenu install callback 并等待在途调用；Runtime 在成员析构前显式停机。
+- 依赖报告随不可变菜单快照发布；P+ 的 VM callback 只保留返回值，角色解析转到主线程并持有角色句柄。P+ 停机关闭 callback gate 并释放请求 reservation。
+- 读档将 staging 的图层移入运行状态，并在生成投影前释放 staging，减少大 co-save 的瞬时复制。
+- 14 组宿主检查通过；配置、菜单快照、后台任务、覆盖层回调和 P+ 回调共 5 组 ASan 检查通过。游戏内退出、换档及渲染仍待实机验收。
+
+## 1.0.4 功能与性能改动
 
 2026-11-10，包名 `SLACS2NG-1.0.4`。
 
@@ -164,6 +175,6 @@ Perf actors=... envSamples=... overlaySubmits=... overlaySlots=... pumps=... pum
 - 必须调整 RaceMenu 槽位；默认 6/3/3/3 且 `bPlayerOnly=1` 时只能显示部分区域。
 - UBE 贴图不在发布包内，缺 `textures/slacs2_ube` 是预期状态。
 - 保存快照可能比最新一次 pump 晚一拍；保存回调不等待 VM、任务或材质。
-- 没有自动 `Runtime::shutdown`；进程退出由 SKSE 回收。
+- 1.0.3 当时没有自动 `Runtime::shutdown`；1.0.5 已增加显式析构停机。
 - 旧 Papyrus 通知不带会话令牌，换档瞬间的极旧事件会被 epoch 拒绝，但不会跨档加层。
 - 面向新档设计：co-save 为新的版本化格式，不迁移旧 Papyrus 存档里的层状态。

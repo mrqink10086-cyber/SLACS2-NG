@@ -28,6 +28,7 @@ namespace slacs
 		{
 			GetThread,
 			Positions,
+			ResolvePositions,
 			Sex,
 			InteractionRegistered,
 			Interactions,
@@ -121,6 +122,7 @@ namespace slacs
 		PPlusFailureCode failure{ PPlusFailureCode::InvalidQueryData };
 
 		RE::VMHandle thread{};
+		std::optional<RE::BSScript::Variable> positionsResult;
 		std::vector<FormId> positions;
 		std::vector<std::int32_t> sexes;
 		std::size_t sourcePosition{ static_cast<std::size_t>(-1) };
@@ -200,26 +202,50 @@ namespace slacs
 
 	PPlusAdapter::~PPlusAdapter()
 	{
-		std::lock_guard lock(callbackGate_->mutex);
+		shutdown();
+	}
+
+	void PPlusAdapter::shutdown()
+	{
+		std::lock_guard gateLock(callbackGate_->mutex);
 		callbackGate_->closed = true;
 		callbackGate_->owner = nullptr;
+		PPlusDependencies dependencies;
+		std::size_t reserved = 0;
+		{
+			std::lock_guard lock(mutex_);
+			closed_ = true;
+			dependencies = std::move(dependencies_);
+			reserved = requests_.size();
+			requests_.clear();
+		}
+		if (dependencies.releaseResult) {
+			for (std::size_t i = 0; i < reserved; ++i) {
+				dependencies.releaseResult();
+			}
+		}
 	}
 
 	void PPlusAdapter::setDependencies(PPlusDependencies a_dependencies)
 	{
 		std::lock_guard lock(mutex_);
-		dependencies_ = std::move(a_dependencies);
+		if (!closed_) {
+			dependencies_ = std::move(a_dependencies);
+		}
 	}
 
-	void PPlusAdapter::requestPump()
+	void PPlusAdapter::requestPump() noexcept
 	{
-		std::function<void()> wake;
-		{
-			std::lock_guard lock(mutex_);
-			wake = dependencies_.wake;
-		}
-		if (wake) {
-			wake();
+		try {
+			std::function<void()> wake;
+			{
+				std::lock_guard lock(mutex_);
+				wake = dependencies_.wake;
+			}
+			if (wake) {
+				wake();
+			}
+		} catch (...) {
 		}
 	}
 
@@ -228,6 +254,9 @@ namespace slacs
 		PPlusDependencies dependencies;
 		{
 			std::lock_guard lock(mutex_);
+			if (closed_) {
+				return QueryStart::RejectedNotRunning;
+			}
 			if (requests_.size() >= kMaxPending) {
 				return QueryStart::RejectedCapacity;
 			}
@@ -264,13 +293,16 @@ namespace slacs
 		state->interactions.clear();
 		state->tags.fill(false);
 
+		bool inserted = false;
 		{
 			std::lock_guard lock(mutex_);
-			const auto [_, inserted] = requests_.emplace(state->id, state);
-			if (!inserted) {
-				dependencies.releaseResult();
-				return QueryStart::RejectedCapacity;
+			if (!closed_) {
+				inserted = requests_.emplace(state->id, state).second;
 			}
+		}
+		if (!inserted) {
+			dependencies.releaseResult();
+			return QueryStart::RejectedNotRunning;
 		}
 
 		if (!dispatchStep(state)) {
@@ -382,6 +414,48 @@ namespace slacs
 				args,
 				callback);
 			break;
+		case QueryStep::ResolvePositions:
+			{
+				auto result = std::move(a_state->positionsResult);
+				a_state->positionsResult.reset();
+				if (!result) {
+					fail(a_state, PPlusFailureCode::InvalidQueryData);
+					return false;
+				}
+				auto array = result->GetArray();
+				if (!array) {
+					fail(a_state, PPlusFailureCode::InvalidQueryData);
+					return false;
+				}
+				a_state->positions.clear();
+				a_state->positions.reserve(array->size());
+				for (std::uint32_t i = 0; i < array->size(); ++i) {
+					auto* actor = (*array)[i].Unpack<RE::Actor*>();
+					const auto lease = actor ? actor->GetHandle().get() : RE::NiPointer<RE::Actor>{};
+					if (!lease || lease->IsDeleted()) {
+						fail(a_state, PPlusFailureCode::ParticipantUnavailable);
+						return false;
+					}
+					a_state->positions.push_back(lease->GetFormID());
+				}
+				const auto source = std::find(a_state->positions.begin(), a_state->positions.end(), a_state->sourceFormId);
+				if (source == a_state->positions.end()) {
+					fail(a_state, PPlusFailureCode::SourceUnavailable);
+					return false;
+				}
+				a_state->sourcePosition = static_cast<std::size_t>(std::distance(a_state->positions.begin(), source));
+				a_state->pairs.clear();
+				for (std::size_t i = 0; i < a_state->positions.size(); ++i) {
+					if (i != a_state->sourcePosition) {
+						a_state->pairs.push_back(i);
+					}
+				}
+				a_state->sexes.assign(a_state->positions.size(), -1);
+				a_state->interactions.assign(a_state->pairs.size(), {});
+				a_state->cursor = 0;
+				a_state->step = a_state->pairs.empty() ? QueryStep::Finalize : QueryStep::Sex;
+				return true;
+			}
 		case QueryStep::Sex:
 			{
 				if (a_state->cursor >= a_state->positions.size()) {
@@ -529,37 +603,12 @@ namespace slacs
 					fail(a_state, PPlusFailureCode::InvalidQueryData);
 					return;
 				}
-				a_state->positions.clear();
-				a_state->positions.reserve(array->size());
-				for (std::uint32_t i = 0; i < array->size(); ++i) {
-					auto* actor = (*array)[i].Unpack<RE::Actor*>();
-					if (!actor) {
-						fail(a_state, PPlusFailureCode::InvalidQueryData);
-						return;
-					}
-					a_state->positions.push_back(actor->GetFormID());
-				}
-				const auto source = std::find(
-					a_state->positions.begin(),
-					a_state->positions.end(),
-					a_state->sourceFormId);
-				if (source == a_state->positions.end()) {
-					fail(a_state, PPlusFailureCode::SourceUnavailable);
-					return;
-				}
-				a_state->sourcePosition = static_cast<std::size_t>(std::distance(a_state->positions.begin(), source));
-				a_state->pairs.clear();
-				for (std::size_t i = 0; i < a_state->positions.size(); ++i) {
-					if (i != a_state->sourcePosition) {
-						a_state->pairs.push_back(i);
-					}
-				}
-				a_state->sexes.assign(a_state->positions.size(), -1);
-				a_state->interactions.assign(a_state->pairs.size(), {});
-				a_state->cursor = 0;
-				a_state->step = a_state->pairs.empty() ? QueryStep::Finalize : QueryStep::Sex;
+				a_state->positionsResult = a_result;
+				a_state->step = QueryStep::ResolvePositions;
 			}
 			break;
+		case QueryStep::ResolvePositions:
+			return;
 		case QueryStep::Sex:
 			{
 				if (!a_result.IsInt()) {

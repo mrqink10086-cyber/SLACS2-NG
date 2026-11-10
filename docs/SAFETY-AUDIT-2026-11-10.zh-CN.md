@@ -2,7 +2,7 @@
 
 日期：2026-11-10。审计基准：本地提交 `77f2cce`，包含 1.0.4 功能与性能改动。
 
-结论：发现一项已复现的配置读取内存放大问题。普通运行路径未发现有充分证据支持的数据竞争、释放后使用、双重释放、越界或无界递归。退出/卸载、初始化菜单读取及 VM 对象借用仍有依赖引擎时序的条件风险，不能由宿主测试直接判定安全。
+结论：原审计发现一项已复现的配置读取内存放大问题，以及四项条件性生命周期/线程风险。1.0.5 已修改这些路径，并消除读档中的额外图层复制。第 1–6 节保留审计基准记录；修复与验证见第 7 节。普通运行路径未发现有充分证据支持的其他数据竞争、释放后使用、双重释放、越界或无界递归。
 
 本轮审核覆盖 `src` 内插件自有 C++ 实现、头文件、Papyrus 桥及复制的 RaceMenu 接口声明。三个 Luna xhigh 子代理分别审阅运行时/回调、覆盖层/菜单/引擎对象、Core/配置/持久化；根代理复核发现并运行动态检查。`lib` 内第三方实现没有逐行全审；仅按需读取 CommonLib 的句柄、VM 和 SKSE task 包装。
 
@@ -106,4 +106,25 @@ Overlay 测试曾在创建系统 Temp 下的可选贴图夹具时收到 `Access 
 3. 在真实引擎中核对 task 排空、RaceMenu callback 注销和 VM 对象存活契约，再按结果完善停机协议。
 4. 用有效大 co-save 测量峰值，并消除可转移的读档复制。
 
-本轮新增审计报告和忽略的宿主探针产物；产品代码保持审计基准 `77f2cce`。
+审计阶段仅新增报告和忽略的宿主探针产物，产品代码当时保持基准 `77f2cce`。
+
+## 7. 1.0.5 修复记录
+
+| 原发现 | 修复 |
+| --- | --- |
+| 配置分配放大 | 文件最多 64 KiB、JSON 最多 1024 节点、每对象/数组最多 64 项；创建超额数据前返回无效配置，保留原嵌套深度规则。 |
+| SKSE 排队 task 生命周期 | task 只持共享控制状态和启动代数；停止使旧任务失效，等待已开始的 tick；Runtime 析构在其他成员销毁前执行 shutdown。tick 内自停允许当前 tick 返回，不等待自身。 |
+| RaceMenu install callback | 关闭回调入口，锁外注销 provider 回调，再等待在途调用；重复 shutdown 安全，迟到调用不访问 adapter。 |
+| 菜单依赖报告竞争 | 初始化经 pump mutex 串行化，成功后才发布初始化标记；依赖报告纳入不可变 MenuSnapshot，渲染不再借用可变 Runtime vector。 |
+| VM callback 中的 Actor 借用 | callback 仅持有返回 Variable；游戏线程 poll 解析 Actor 并取得拥有型句柄后读取 FormID；关闭 callback gate 后释放待处理 reservation。 |
+| 读档额外复制 | 将 staging region vectors 移入恢复状态，并在 Core 生成投影前释放 staging 容器。格式与记录上限不变。 |
+
+原配置探针在修复后使用相同的 200,013 字节输入：累计 `new` 申请由 109,657,636 降至 **72 字节**，最大单次由 12,166,479 降至 **40 字节**，仍返回 `Invalid`。固定读取缓冲位于栈上；这些数字只统计 C++ `new`，不是进程峰值。
+
+资源边界测试覆盖字节数、节点数、容器项数的恰好上限与超限，以及旧字段兼容、深度和常规 round trip。生命周期测试覆盖排队后停止、执行中停止、对象析构后旧任务、重启代数、回调注销/在途排空与迟到回调。
+
+MSVC 完整构建及 14 组宿主检查通过。配置、菜单快照、BackgroundPump、OverlayAdapter 和真实 PPlusAdapter callback 共 5 组 Clang ASan 检查以 `detect_stack_use_after_return=1:halt_on_error=1` 通过。P+ 新检查验证后台 callback 不访问 Actor、poll 在线程内持有 NiPointer、返回数组生命周期、无效参与者、停机后迟到回调及 reservation 单次释放。
+
+RaceMenu 注销要求 provider 在 shutdown 时仍存活；不支持游戏运行中热卸载 DLL。剩余合法状态和投影仍占用与存档规模相应的内存，尚未测量最大合法 co-save 的真实游戏 RSS。宿主 stub/ASan 检查不能代替真实 Skyrim/RaceMenu/VM 的退出与删除并发验收。
+
+最终析构的 shutdown 是私有入口，由 Runtime 析构单独调用；它不再向 QuestBridge 派发 Papyrus 注销，避免在最终销毁线程调用 VM。会话切换时的 Quest 注销仍保留在原游戏执行路径。

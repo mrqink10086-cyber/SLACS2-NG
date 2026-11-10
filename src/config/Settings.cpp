@@ -8,7 +8,6 @@
 #include <limits>
 #include <locale>
 #include <map>
-#include <sstream>
 #include <string_view>
 #include <utility>
 
@@ -25,6 +24,13 @@ namespace slacs
 			Array,
 			Object,
 		};
+
+		// The saved schema is under 1 KiB with fewer than 24 root fields and six
+		// class flags. These limits leave room for compatible fields while keeping
+		// file, tree, and individual-container allocations small and predictable.
+		constexpr std::size_t kMaxSettingsFileBytes = 64 * 1024;
+		constexpr std::size_t kMaxJsonNodes = 1024;
+		constexpr std::size_t kMaxJsonContainerEntries = 64;
 
 		struct JsonValue
 		{
@@ -93,6 +99,10 @@ namespace slacs
 				if (a_depth > 32) {
 					return fail("nesting too deep");
 				}
+				if (nodesParsed_ >= kMaxJsonNodes) {
+					return fail("too many values");
+				}
+				++nodesParsed_;
 				skipSpace();
 				if (pos_ >= text_.size()) {
 					return fail("unexpected end");
@@ -270,6 +280,9 @@ namespace slacs
 					return true;
 				}
 				for (;;) {
+					if (a_out.array.size() >= kMaxJsonContainerEntries) {
+						return fail("array too wide");
+					}
 					JsonValue item;
 					if (!parseValue(item, a_depth)) {
 						return false;
@@ -302,6 +315,9 @@ namespace slacs
 					return true;
 				}
 				for (;;) {
+					if (a_out.object.size() >= kMaxJsonContainerEntries) {
+						return fail("object too wide");
+					}
 					skipSpace();
 					if (pos_ >= text_.size() || text_[pos_] != '"') {
 						return fail("expected object key");
@@ -337,6 +353,7 @@ namespace slacs
 
 			std::string_view text_;
 			std::size_t pos_{};
+			std::size_t nodesParsed_{};
 			std::string error_;
 		};
 
@@ -629,14 +646,20 @@ namespace slacs
 			result.status = SettingsLoadStatus::IoError;
 			return result;
 		}
-		std::ostringstream stream;
-		stream << file.rdbuf();
-		if (!file.good() && !file.eof()) {
+		std::array<char, kMaxSettingsFileBytes + 1> buffer{};
+		file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+		if (file.bad() || (file.fail() && !file.eof())) {
 			result.status = SettingsLoadStatus::IoError;
 			return result;
 		}
+		const auto bytesRead = static_cast<std::size_t>(file.gcount());
+		if (bytesRead > kMaxSettingsFileBytes) {
+			result.status = SettingsLoadStatus::Invalid;
+			result.issues.push_back({ "$", SettingsIssueCode::Parse });
+			return result;
+		}
 
-		const auto text = stream.str();
+		const std::string text(buffer.data(), bytesRead);
 		std::size_t offset = 0;
 		if (text.size() >= 3 &&
 			static_cast<unsigned char>(text[0]) == 0xEF &&

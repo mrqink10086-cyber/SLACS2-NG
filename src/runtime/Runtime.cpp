@@ -114,6 +114,11 @@ namespace slacs
 		});
 	}
 
+	Runtime::~Runtime()
+	{
+		shutdown();
+	}
+
 	bool Runtime::install()
 	{
 		if (installed_) {
@@ -223,7 +228,11 @@ namespace slacs
 
 	bool Runtime::initialize()
 	{
-		if (initialized_.exchange(true)) {
+		std::lock_guard lock(pumpMutex_);
+		if (shutdown_.load(std::memory_order_acquire)) {
+			return false;
+		}
+		if (initialized_.load(std::memory_order_acquire)) {
 			return dependencies_.ready;
 		}
 
@@ -249,6 +258,7 @@ namespace slacs
 		}
 
 		dependencies_ = checkDependencies();
+		publishMenuSnapshot();
 		for (const auto& check : dependencies_.checks) {
 			logs::info(
 				"Dependency {} status={} expected={} actual={}",
@@ -283,6 +293,8 @@ namespace slacs
 			logs::error("Effects initialization failed; spells will remain unavailable");
 		}
 
+		initialized_.store(true, std::memory_order_release);
+		publishMenuSnapshot();
 		logs::info("Runtime initialized for session epoch {}", epoch_.load());
 		return true;
 	}
@@ -512,7 +524,7 @@ namespace slacs
 		std::vector<ActorState> restored;
 		restored.reserve(staging->actors.size());
 		std::unordered_set<FormId> seenForms;
-		for (const auto& persisted : staging->actors) {
+		for (auto& persisted : staging->actors) {
 			if (persisted.formId == kInvalidFormId || !seenForms.insert(persisted.formId).second) {
 				resetSessionState();
 				result.status = LoadCommitStatus::Invalid;
@@ -527,7 +539,7 @@ namespace slacs
 			ActorState state{};
 			state.actor = *actorId;
 			state.formId = persisted.formId;
-			state.regions = persisted.regions;
+			state.regions = std::move(persisted.regions);
 			state.lastSettledGameHours = persisted.lastSettledGameHours;
 			if (persisted.timedClearRemainingSeconds) {
 				state.timedClearAt = now.activeSeconds + std::max(0.0, *persisted.timedClearRemainingSeconds);
@@ -547,6 +559,7 @@ namespace slacs
 		}
 
 		PumpReport loadReport;
+		staging.reset();
 		auto change = Core::replaceState(coreState_, std::move(restored), settings_, now);
 		applyChangeSet(change, loadReport);
 
@@ -615,13 +628,14 @@ namespace slacs
 		background_.stop();
 		{
 			std::lock_guard lock(pumpMutex_);
+			pplus_.shutdown();
+			overlay_.shutdown();
 			pplus_.cancelEpoch(oldEpoch);
 			scheduler_.cancelEpoch(oldEpoch);
 			scheduler_.clear();
 			deadlineIds_.clear();
 			discardLoadStaging();
 		}
-		questBridge_.invalidate();
 		logs::info("Runtime shutdown");
 	}
 
@@ -643,11 +657,6 @@ namespace slacs
 	const Settings& Runtime::settings() const noexcept
 	{
 		return settings_;
-	}
-
-	const DependencyReport& Runtime::dependencies() const noexcept
-	{
-		return dependencies_;
 	}
 
 	void Runtime::pumpNow()
@@ -1920,6 +1929,7 @@ namespace slacs
 		snapshot.sessionReady = sessionReady_.load(std::memory_order_acquire);
 		snapshot.overlayCapacities = overlay_.capacities();
 		snapshot.settings = settings_;
+		snapshot.dependencies = dependencies_;
 		snapshot.settingsFeedback = menuFeedback_;
 		snapshot.selectedCandidate = selectedCandidate_;
 		snapshot.selectionRevision = selectionRevision_;

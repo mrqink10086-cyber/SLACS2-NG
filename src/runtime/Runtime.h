@@ -45,7 +45,6 @@ namespace slacs
 		void onLoadStaging(LoadResult a_result);
 		LoadCommitResult commitLoadStaging();
 		void onSessionReady();
-		void shutdown();
 		void publishSaveSnapshot();
 
 		[[nodiscard]] SessionEpoch epoch() const noexcept;
@@ -54,7 +53,6 @@ namespace slacs
 
 		[[nodiscard]] Ingress& ingress() noexcept;
 		[[nodiscard]] const Settings& settings() const noexcept;
-		[[nodiscard]] const DependencyReport& dependencies() const noexcept;
 
 		static void onMessage(SKSE::MessagingInterface::Message* a_message);
 		static void onSave(SKSE::SerializationInterface* a_intfc);
@@ -78,6 +76,8 @@ namespace slacs
 		};
 
 		Runtime();
+		~Runtime();
+		void shutdown();
 
 		void pumpNow();
 		PumpReport pumpLocked(const GameTime& a_now, WorkBudget a_budget);

@@ -57,6 +57,7 @@ namespace slacs
 		bool sessionReady{};
 		std::array<std::uint32_t, 4> overlayCapacities{};
 		Settings settings;
+		DependencyReport dependencies;
 		SettingsFeedback settingsFeedback;
 		std::vector<TrackedActorRow> actors;
 		ActorId selectedCandidate{};

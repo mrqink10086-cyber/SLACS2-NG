@@ -7,7 +7,7 @@ SLACS2 NG 是 SLACS 2 的原生 C++ 重写：把原来由 Papyrus、StorageUtil�
 - 菜单改用 SKSE Menu Framework，单一入口、同页分组的全中文界面。
 - 面向新档设计，存档格式为版本化 co-save；全局配置在 `Data/SKSE/Plugins/SLACS2NG.json`。
 
-当前版本 **1.0.4**。自动目标支持全部成年女性 NPC；菜单可刷新已加载 NPC 或选择准星角色。新增覆盖层保留旧层槽位，只提交变化的材质。**尚未在游戏内验收**，详见下方“验证状态”。
+当前版本 **1.0.5**。自动目标支持全部成年女性 NPC；菜单可刷新已加载 NPC 或选择准星角色。新增覆盖层保留旧层槽位，只提交变化的材质。本次增加配置资源预算，并修复后台任务、覆盖层回调和菜单依赖读取的生命周期边界。**尚未在游戏内验收**，详见下方“验证状态”。
 
 ## 功能
 
@@ -64,7 +64,7 @@ foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7
 py tools/release.py
 ```
 
-输出为 `artifacts/SLACS2NG-1.0.4/`、同名 ZIP 和文件清单。
+输出为 `artifacts/SLACS2NG-1.0.5/`、同名 ZIP 和文件清单。
 
 ## 安装
 
@@ -119,7 +119,7 @@ docs             PLAN、INTERFACES、SESSION-01..05、AUDIT、RELEASE-NOTES
 - 未接入 BiS / DnB：没有验证过的外部信号，不写“已支持”。
 - UBE 贴图不在发布包内，缺 `textures/slacs2_ube` 是预期状态。
 - 保存快照可能比最新一次 pump 晚一拍；保存回调不等待 VM、任务或材质。
-- 没有自动 `Runtime::shutdown`；进程退出由 SKSE 回收。
+- Runtime 析构先关闭入口、停止后台任务并关闭 P+/RaceMenu 回调，再销毁运行状态；不支持在游戏运行中热卸载 DLL。
 - 旧 Papyrus 通知不带会话令牌，换档瞬间的极旧事件会被 epoch 拒绝，但不会跨档加层。
 
 ## 许可

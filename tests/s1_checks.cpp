@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <string_view>
 
 namespace
 {
@@ -71,6 +72,157 @@ namespace
 		}
 		auto invalidCap = slacs::Settings::load(path);
 		Check(invalidCap.status == slacs::SettingsLoadStatus::Invalid, "non-five layer cap should be rejected");
+
+		const auto writeText = [&path](std::string_view a_text) {
+			std::ofstream file(path, std::ios::binary | std::ios::trunc);
+			file.write(a_text.data(), static_cast<std::streamsize>(a_text.size()));
+		};
+		const auto rejectedByParserBudget = [&path](const char* a_message) {
+			const auto loadedSettings = slacs::Settings::load(path);
+			Check(loadedSettings.status == slacs::SettingsLoadStatus::Invalid &&
+					!loadedSettings.issues.empty() &&
+					loadedSettings.issues.front().code == slacs::SettingsIssueCode::Parse,
+				a_message);
+		};
+
+		{
+			std::string atArrayWidth = R"({"schemaVersion":1,"unknown":[)";
+			for (std::size_t i = 0; i < 64; ++i) {
+				if (i != 0) {
+					atArrayWidth += ',';
+				}
+				atArrayWidth += '0';
+			}
+			atArrayWidth += "]}";
+			writeText(atArrayWidth);
+			auto loadedAtArrayWidth = slacs::Settings::load(path);
+			Check(loadedAtArrayWidth.status == slacs::SettingsLoadStatus::Invalid &&
+					!loadedAtArrayWidth.issues.empty() &&
+					loadedAtArrayWidth.issues.front().code == slacs::SettingsIssueCode::UnknownField,
+				"array at the container limit should still be parsed");
+
+			std::string atObjectWidth = R"({"schemaVersion":1)";
+			for (std::size_t i = 0; i < 63; ++i) {
+				atObjectWidth += ",\"unknown" + std::to_string(i) + "\":true";
+			}
+			atObjectWidth += '}';
+			writeText(atObjectWidth);
+			auto loadedAtObjectWidth = slacs::Settings::load(path);
+			Check(loadedAtObjectWidth.status == slacs::SettingsLoadStatus::Invalid &&
+					!loadedAtObjectWidth.issues.empty() &&
+					loadedAtObjectWidth.issues.front().code == slacs::SettingsIssueCode::UnknownField,
+				"object at the container limit should still be parsed");
+		}
+
+		{
+			std::string wideArray = R"({"schemaVersion":1,"unknown":[)";
+			for (std::size_t i = 0; i < 2048; ++i) {
+				if (i != 0) {
+					wideArray += ',';
+				}
+				wideArray += '0';
+			}
+			wideArray += "]}";
+			writeText(wideArray);
+			rejectedByParserBudget("wide array should be rejected before its values are materialized");
+		}
+
+		{
+			std::string wideObject = R"({"schemaVersion":1)";
+			for (std::size_t i = 0; i < 128; ++i) {
+				wideObject += ",\"unknown" + std::to_string(i) + "\":true";
+			}
+			wideObject += '}';
+			writeText(wideObject);
+			rejectedByParserBudget("wide object should be rejected before its members are materialized");
+		}
+
+		{
+			std::string manyNodes = R"({"schemaVersion":1,"unknown":[)";
+			for (std::size_t row = 0; row < 16; ++row) {
+				if (row != 0) {
+					manyNodes += ',';
+				}
+				manyNodes += '[';
+				for (std::size_t column = 0; column < 64; ++column) {
+					if (column != 0) {
+						manyNodes += ',';
+					}
+					manyNodes += '0';
+				}
+				manyNodes += ']';
+			}
+			manyNodes += "]}";
+			writeText(manyNodes);
+			rejectedByParserBudget("JSON node budget should reject a broad nested tree");
+		}
+
+		{
+			std::string atNodeBudget = R"({"schemaVersion":1,"unknown":[)";
+			for (std::size_t row = 0; row < 16; ++row) {
+				if (row != 0) {
+					atNodeBudget += ',';
+				}
+				atNodeBudget += '[';
+				const std::size_t columns = row == 15 ? 60 : 63;
+				for (std::size_t column = 0; column < columns; ++column) {
+					if (column != 0) {
+						atNodeBudget += ',';
+					}
+					atNodeBudget += '0';
+				}
+				atNodeBudget += ']';
+			}
+			atNodeBudget += "]}";
+			writeText(atNodeBudget);
+			auto loadedAtNodeBudget = slacs::Settings::load(path);
+			Check(loadedAtNodeBudget.status == slacs::SettingsLoadStatus::Invalid &&
+					!loadedAtNodeBudget.issues.empty() &&
+					loadedAtNodeBudget.issues.front().code == slacs::SettingsIssueCode::UnknownField,
+				"JSON at the node limit should still be parsed");
+		}
+
+		{
+			std::ofstream file(path, std::ios::binary | std::ios::trunc);
+			file << R"({"schemaVersion":1,"unknown":")";
+			const std::string chunk(4096, 'x');
+			for (int i = 0; i < 32; ++i) {
+				file.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+			}
+			file << R"("})";
+		}
+		rejectedByParserBudget("oversized settings file should be rejected before parsing");
+
+		{
+			std::string atByteLimit = R"({"schemaVersion":1})";
+			atByteLimit.resize(64 * 1024, ' ');
+			writeText(atByteLimit);
+			auto loadedAtByteLimit = slacs::Settings::load(path);
+			Check(loadedAtByteLimit.status == slacs::SettingsLoadStatus::Loaded,
+				"settings file at the byte limit should still load");
+		}
+
+		{
+			std::string withinDepth = R"({"schemaVersion":1,"unknown":)";
+			withinDepth.append(31, '[');
+			withinDepth += '0';
+			withinDepth.append(31, ']');
+			withinDepth += '}';
+			writeText(withinDepth);
+			auto loadedWithinDepth = slacs::Settings::load(path);
+			Check(loadedWithinDepth.status == slacs::SettingsLoadStatus::Invalid &&
+					!loadedWithinDepth.issues.empty() &&
+					loadedWithinDepth.issues.front().code == slacs::SettingsIssueCode::UnknownField,
+				"JSON at the existing nesting limit should still be parsed");
+
+			std::string beyondDepth = R"({"schemaVersion":1,"unknown":)";
+			beyondDepth.append(32, '[');
+			beyondDepth += '0';
+			beyondDepth.append(32, ']');
+			beyondDepth += '}';
+			writeText(beyondDepth);
+			rejectedByParserBudget("JSON beyond the existing nesting limit should be rejected");
+		}
 
 		std::filesystem::remove(path);
 	}
