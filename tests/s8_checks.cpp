@@ -120,23 +120,26 @@ namespace
 		slacs::MenuState::publish(std::move(published));
 
 		const auto snapshot = slacs::MenuState::snapshot();
-		Check(snapshot.epoch == 9, "snapshot epoch is visible");
-		Check(snapshot.revision == 3, "snapshot revision is visible");
-		Check(snapshot.sessionReady, "snapshot session state is visible");
-		Check(snapshot.settings.overlayOpacity == 0.25F, "snapshot settings are visible");
-		Check(snapshot.actors.size() == 1, "snapshot actor rows are visible");
-		if (!snapshot.actors.empty()) {
-			Check(snapshot.actors.front().displayName == "测试角色", "snapshot owns actor display name");
-			Check(snapshot.actors.front().layers[4] == 5, "snapshot owns layer counts");
+		Check(snapshot->epoch == 9, "snapshot epoch is visible");
+		Check(snapshot->revision == 3, "snapshot revision is visible");
+		Check(snapshot->sessionReady, "snapshot session state is visible");
+		Check(snapshot->settings.overlayOpacity == 0.25F, "snapshot settings are visible");
+		Check(snapshot->actors.size() == 1, "snapshot actor rows are visible");
+		if (!snapshot->actors.empty()) {
+			Check(snapshot->actors.front().displayName == "测试角色", "snapshot owns actor display name");
+			Check(snapshot->actors.front().layers[4] == 5, "snapshot owns layer counts");
 		}
-		Check(snapshot.diagnostics.size() == 1, "snapshot diagnostics are visible");
+		Check(snapshot->diagnostics.size() == 1, "snapshot diagnostics are visible");
 
 		const auto copy = slacs::MenuState::snapshot();
-		Check(copy.epoch == snapshot.epoch, "snapshot reads are repeatable");
+		Check(copy->epoch == snapshot->epoch, "snapshot reads are repeatable");
+		Check(copy == snapshot, "readers share the immutable published snapshot");
 
 		slacs::MenuState::publish(slacs::MenuSnapshot{});
 		const auto empty = slacs::MenuState::snapshot();
-		Check(empty.epoch == 0 && empty.actors.empty(), "new snapshot replaces the old one");
+		Check(empty->epoch == 0 && empty->actors.empty(), "new snapshot replaces the old one");
+		Check(empty != snapshot && snapshot->actors.front().displayName == "测试角色",
+			"a reader retains its previous snapshot across publication");
 	}
 
 	void TestFeedbackText()

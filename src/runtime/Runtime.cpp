@@ -103,6 +103,7 @@ namespace slacs
 			[this](PPlusCompleted&& a_completed) {
 				return ingress_.postReserved(RuntimeCommand{ std::move(a_completed) }).status == IngressStatus::Accepted;
 			},
+			[this] { background_.request(); },
 		});
 		overlay_.setDependencies(OverlayDependencies{
 			[] { return dataPath(); },
@@ -801,35 +802,40 @@ namespace slacs
 		};
 
 		std::uint32_t processed = 0;
+		bool preferSteady = true;
 		while (processed < a_budget.maxDeadlines) {
 			if (overBudget()) {
 				a_report.deferred = 1;
 				break;
 			}
-			auto due = scheduler_.takeDue(a_now, 1);
-			if (due.empty()) {
+			const bool gameDue = scheduler_.hasDue(a_now);
+			const auto steadyNow = std::chrono::steady_clock::now();
+			const bool steadyDue = scheduler_.hasDueSteady(steadyNow);
+			if (!gameDue && !steadyDue) {
 				break;
 			}
-			++processed;
-			++a_report.deadlinesProcessed;
-			processDeadlineElapsed(due.front(), a_now, a_report);
-		}
 
-		const auto steadyNow = std::chrono::steady_clock::now();
-		while (processed < a_budget.maxDeadlines) {
-			if (overBudget()) {
-				a_report.deferred = 1;
-				break;
+			const bool takeSteady = steadyDue && (!gameDue || preferSteady);
+			if (takeSteady) {
+				auto due = scheduler_.popDueSteady(steadyNow);
+				if (!due) {
+					continue;
+				}
+				++processed;
+				++a_report.deadlinesProcessed;
+				if (*due == kQuestRetryDeadlineId) {
+					processQuestRetry();
+				}
+			} else {
+				auto due = scheduler_.popDue(a_now);
+				if (!due) {
+					continue;
+				}
+				++processed;
+				++a_report.deadlinesProcessed;
+				processDeadlineElapsed(*due, a_now, a_report);
 			}
-			auto due = scheduler_.takeDueSteady(steadyNow, 1);
-			if (due.empty()) {
-				break;
-			}
-			++processed;
-			++a_report.deadlinesProcessed;
-			if (due.front() == kQuestRetryDeadlineId) {
-				processQuestRetry();
-			}
+			preferSteady = !takeSteady;
 		}
 
 		if (scheduler_.hasDue(a_now) || scheduler_.hasDueSteady(std::chrono::steady_clock::now())) {

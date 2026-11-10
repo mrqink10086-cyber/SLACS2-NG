@@ -98,10 +98,15 @@ namespace slacs::serialization_codec
 			if (!ValidRange(a_region.decayRemainderGameHours, kMaxGameHours)) {
 				return false;
 			}
-			std::unordered_set<std::uint64_t> ids;
-			for (const auto& layer : a_region.layers) {
-				if (!ValidLayer(layer, a_regionIndex) || !ids.insert(layer.id).second) {
+			for (std::size_t index = 0; index < a_region.layers.size(); ++index) {
+				const auto& layer = a_region.layers[index];
+				if (!ValidLayer(layer, a_regionIndex)) {
 					return false;
+				}
+				for (std::size_t previous = 0; previous < index; ++previous) {
+					if (a_region.layers[previous].id == layer.id) {
+						return false;
+					}
 				}
 			}
 			return true;
@@ -318,12 +323,17 @@ namespace slacs::serialization_codec
 					source.decayRemainderGameHours :
 					0.0;
 				target.layers.reserve(std::min<std::size_t>(source.layers.size(), kMaxLayers));
-				std::unordered_set<std::uint64_t> ids;
 				for (const auto& layer : source.layers) {
 					if (target.layers.size() >= kMaxLayers) {
 						break;
 					}
-					if (ValidLayer(layer, index) && ids.insert(layer.id).second) {
+					if (!ValidLayer(layer, index)) {
+						continue;
+					}
+					const auto duplicate = std::any_of(target.layers.begin(), target.layers.end(), [&layer](const LayerRecord& a_existing) {
+						return a_existing.id == layer.id;
+					});
+					if (!duplicate) {
 						target.layers.push_back(layer);
 						hasLayers = true;
 					}

@@ -177,6 +177,15 @@ namespace
 		const auto badCount = slacs::serialization_codec::decode(badLayerCount.data(), badLayerCount.size(), {});
 		Expect(badCount.status == slacs::LoadStatus::InvalidData, "oversized layer count rejected", __LINE__);
 
+		auto duplicateLayer = EncodeOrFail(snapshot);
+		const std::uint64_t duplicateLayerId = 5;
+		constexpr auto firstLayerOffset = kFirstFormId + sizeof(slacs::FormId) + sizeof(std::uint32_t);
+		constexpr auto encodedLayerSize = sizeof(std::uint64_t) + sizeof(std::uint16_t) + sizeof(slacs::TextureVariant);
+		WriteAt(duplicateLayer, firstLayerOffset + encodedLayerSize, &duplicateLayerId, sizeof(duplicateLayerId));
+		const auto duplicateLayerResult = slacs::serialization_codec::decode(
+			duplicateLayer.data(), duplicateLayer.size(), {});
+		Expect(duplicateLayerResult.status == slacs::LoadStatus::InvalidData, "duplicate layer ID rejected on decode", __LINE__);
+
 		auto unsupported = EncodeOrFail(snapshot);
 		const std::uint32_t schemaTwo = 2;
 		WriteAt(unsupported, 0, &schemaTwo, sizeof(schemaTwo));
@@ -231,6 +240,12 @@ namespace
 		badTexture.actors[0].regions[slacs::RegionIndex(slacs::Region::BodyVaginal)].layers[0].textureIndex = 0;
 		Expect(slacs::serialization_codec::encode(badTexture, data) == slacs::PersistenceError::InvalidValue,
 			"invalid texture index rejected on encode", __LINE__);
+
+		auto duplicateLayer = BasicSnapshot();
+		duplicateLayer.actors[0].regions[slacs::RegionIndex(slacs::Region::BodyVaginal)].layers[1].id =
+			duplicateLayer.actors[0].regions[slacs::RegionIndex(slacs::Region::BodyVaginal)].layers[0].id;
+		Expect(slacs::serialization_codec::encode(duplicateLayer, data) == slacs::PersistenceError::InvalidValue,
+			"duplicate layer ID rejected on encode", __LINE__);
 
 		auto badVariant = BasicSnapshot();
 		badVariant.actors[0].regions[slacs::RegionIndex(slacs::Region::BodyVaginal)].layers[0].variant =
@@ -312,6 +327,43 @@ namespace
 				"huge timer clamped on snapshot", __LINE__);
 		}
 	}
+
+	void CheckSnapshotLayerFilteringAndOrder()
+	{
+		slacs::CoreState state{};
+		slacs::ActorState actor{};
+		actor.actor = 1;
+		actor.formId = 0x500;
+		actor.lastSettledGameHours = 1.0;
+		auto& layers = actor.regions[slacs::RegionIndex(slacs::Region::BodyVaginal)].layers;
+		layers = {
+			Layer(0, 1, slacs::TextureVariant::Normal),
+			Layer(10, 1, slacs::TextureVariant::Normal),
+			Layer(10, 2, slacs::TextureVariant::Mega),
+			Layer(11, 0, slacs::TextureVariant::Normal),
+			Layer(11, 3, slacs::TextureVariant::Mega),
+			Layer(12, 4, slacs::TextureVariant::Normal),
+			Layer(13, 5, slacs::TextureVariant::Normal),
+			Layer(14, 6, slacs::TextureVariant::Normal),
+			Layer(15, 7, slacs::TextureVariant::Mega),
+		};
+		state.actors.emplace(actor.actor, actor);
+
+		const auto snapshot = slacs::serialization_codec::makeSnapshot(state, { 2.0, 3.0 });
+		Expect(snapshot.actors.size() == 1, "snapshot retains actor with filtered layers", __LINE__);
+		if (snapshot.actors.size() == 1) {
+			const auto& result = snapshot.actors[0].regions[slacs::RegionIndex(slacs::Region::BodyVaginal)].layers;
+			Expect(result.size() == 5, "snapshot fills layer cap from valid unique layers", __LINE__);
+			if (result.size() == 5) {
+				Expect(result[0].id == 10 && result[0].textureIndex == 1 && result[0].variant == slacs::TextureVariant::Normal,
+					"snapshot keeps first duplicate and its order", __LINE__);
+				Expect(result[1].id == 11 && result[1].textureIndex == 3 && result[1].variant == slacs::TextureVariant::Mega,
+					"snapshot skips invalid layer before valid occurrence", __LINE__);
+				Expect(result[2].id == 12 && result[3].id == 13 && result[4].id == 14,
+					"snapshot preserves accepted layer order and truncates at five", __LINE__);
+			}
+		}
+	}
 }
 
 int main()
@@ -320,6 +372,7 @@ int main()
 	CheckZeroFormAndInvalidDecode();
 	CheckEncodeValidation();
 	CheckMakeSnapshot();
+	CheckSnapshotLayerFilteringAndOrder();
 
 	if (g_failures != 0) {
 		std::cerr << g_failures << " S5 persistence check(s) failed\n";

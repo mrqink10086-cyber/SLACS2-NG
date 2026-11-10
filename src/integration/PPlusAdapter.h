@@ -42,6 +42,7 @@ namespace slacs
 		std::function<bool()> reserveResult;
 		std::function<void()> releaseResult;
 		std::function<bool(PPlusCompleted&&)> postResult;
+		std::function<void()> wake;
 	};
 
 	class PPlusAdapter
@@ -77,6 +78,7 @@ namespace slacs
 		void fail(const std::shared_ptr<RequestState>& a_state, PPlusFailureCode a_code);
 		void finalize(const std::shared_ptr<RequestState>& a_state);
 		bool complete(const std::shared_ptr<RequestState>& a_state);
+		void requestPump();
 
 		mutable std::mutex mutex_;
 		std::shared_ptr<CallbackGate> callbackGate_;

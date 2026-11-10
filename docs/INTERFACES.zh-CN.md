@@ -223,6 +223,8 @@ std::uint32_t PPlusAdapter::poll(SteadyTime now, std::size_t maxCallbacks);
 
 adapter 在 `begin` 时为终态预留 Ingress 容量，容量不足同步拒绝；取消和正常完成竞争时只交付一次。Runtime 以同 tid 的 ingress sequence 建立有序待处理队列：较晚查询先完成时缓存结果，等较早请求终结后再交给 Core。拒绝启动的请求不占等待槽，不同 tid 独立推进。首版查询超时固定为 5 个 steady 秒；`poll` 同时收取 VM 返回值和处理超时。
 
+VM callback 更新状态、释放请求锁后，通过线程安全的 wake 通知 BackgroundPump；唤醒仅安排游戏执行阶段的任务，不在 callback 线程 dispatch 下一次 VM 调用。CallbackGate 覆盖通知期间的 adapter 生命周期。等待请求仍保留 50ms 轮询，负责超时、取消及通知遗漏后的推进。
+
 Runtime 将成功 outcome 翻译成 `CoreOp::AddLayers`；失败记录可诊断原因，不改变逻辑层。Scene End、读档、新游戏、P+ 查询超时都取消未完成请求。P+ 多个 VM callback 不组成同步快照；如完整结果不再可得，返回失败，不拼接跨请求数据。
 
 ## 7. Settings 与 Core（S1/S4/S6/S7）
@@ -362,6 +364,8 @@ enum class DeadlineUpdateStatus : std::uint8_t { Updated, RejectedInvalid };
 DeadlineUpdateStatus Scheduler::upsert(const Deadline& deadline);
 bool Scheduler::cancel(DeadlineId id);
 void Scheduler::cancelEpoch(SessionEpoch epoch);
+std::optional<DeadlineElapsed> Scheduler::popDue(const GameTime& now);
+std::optional<DeadlineId> Scheduler::popDueSteady(SteadyTime now);
 std::vector<DeadlineElapsed> Scheduler::takeDue(
     const GameTime& now, std::size_t maxItems);
 std::optional<EnvironmentSample> Environment::sample(
@@ -370,7 +374,7 @@ std::optional<EnvironmentSample> Environment::sample(
 
 `Deadline::due` 的单位由 clock 决定。自然衰减/雨水用 CalendarGameHours，整体清除/游泳采样用 ActiveSeconds。P+ 超时单独由 Runtime 每轮读取 steady_clock 后调用 adapter 的 `poll`；覆盖层和效果失败重试由 RetrySchedule 按 steady clock 限频。两者都不进入业务期限或存档。
 
-Scheduler 是单一 Runtime pump 使用的共享容器，同一 DeadlineId 可更新或取消。到期返回 DeadlineElapsed，Runtime 核验 epoch/ownerRevision 后处理。NaturalDecay 的 owner 是 region；TimedClear/SwimSample 的 owner 是 actor。旧 OverlayRetry 枚举保留，Runtime 不再生成该期限。owner revision 改变时，所有仍有效的对应期限都要 upsert：成功加层重置整体清除 due，其他变化保留原 due。取消后的旧到期项失效。
+Scheduler 是单一 Runtime pump 使用的共享容器，同一 DeadlineId 可更新或取消。单项 pop 接口不分配临时数组；各时钟域内部按 due 排序，日历与活动时钟同时到期时轮换处理，避免比较不同单位的数值。Runtime 也交替处理业务期限与 steady 期限，保持总条数及墙钟预算。到期返回 DeadlineElapsed，Runtime 核验 epoch/ownerRevision 后处理。NaturalDecay 的 owner 是 region；TimedClear/SwimSample 的 owner 是 actor。旧 OverlayRetry 枚举保留，Runtime 不再生成该期限。owner revision 改变时，所有仍有效的对应期限都要 upsert：成功加层重置整体清除 due，其他变化保留原 due。取消后的旧到期项失效。
 
 Environment 在游戏执行阶段采样 parent cell、Sky 降水和 actor 的 swimming 状态，输出当前值及连续观测到的雨水小时增量。Runtime 每次结算前消费一次新采样；睡眠、等待、旅行、暂停和卸载使暴露观测中断，恢复后重新起算。日历衰减仍补算这些间隔。清空采样连续性的入口为 `void Environment::reset(SessionEpoch epoch)` 和 `void Environment::invalidate(ActorId actor)`，分别由会话切换及观测中断调用。
 
@@ -414,7 +418,10 @@ struct RefreshActor { ActorId actor; SessionEpoch epoch; };
 struct TestAdd { ActorId actor; std::vector<Region> regions; std::uint8_t count;
                  TextureVariant variant; SessionEpoch epoch; };
 struct TestClear { ActorId actor; std::vector<Region> regions; SessionEpoch epoch; };
-using MenuAction = std::variant<ApplySettings, ClearActor, RefreshActor, TestAdd, TestClear>;
+struct RefreshActorCandidates { SessionEpoch epoch; };
+struct SelectCrosshairActor { SessionEpoch epoch; };
+using MenuAction = std::variant<ApplySettings, ClearActor, RefreshActor, TestAdd, TestClear,
+                                RefreshActorCandidates, SelectCrosshairActor>;
 
 struct TrackedActorRow { ActorId actor; FormId formId; std::string displayName;
     std::array<std::uint8_t, 7> layers; bool has3D; bool visualDegraded; };
@@ -428,11 +435,11 @@ struct MenuSnapshot { SessionEpoch epoch; Revision revision; bool sessionReady;
     std::vector<DiagnosticRow> diagnostics; };
 
 void Menu::publish(MenuSnapshot snapshot);
-MenuSnapshot Menu::snapshot() const;
+[[nodiscard]] std::shared_ptr<const MenuSnapshot> Menu::snapshot();
 IngressResult Menu::submit(MenuAction action);
 ```
 
-Runtime 每轮发布 MenuSnapshot，菜单通过原子交换的只读快照获取值；显示名与诊断文本均为拥有的字符串。菜单回调只生成 MenuAction，submit 原样返回入队结果，关闭会话或队列满时显示对应中文提示。
+Runtime 每轮发布 MenuSnapshot，菜单每帧持有一个共享只读句柄，不复制角色数组和字符串；发布新快照不会使已持有的旧句柄失效。显示名与诊断文本均为快照拥有的字符串。菜单回调只生成 MenuAction，submit 原样返回入队结果，关闭会话或队列满时显示对应中文提示。
 
 ApplySettings 携带完整配置：Runtime 先校验、用旧设置结算时间，再替换并触发 SettingsChanged；saveToDisk=true 时调用 Settings::save。SettingsFeedback 分别反馈应用与写盘结果：写盘失败保留已生效设置，显示“设置已应用，保存失败”。ClearActor 清空全部区域，TestClear 清所选区域，TestAdd 按指定 count/variant 测试加层且受五层上限限制，RefreshActor 只请求重建表现。手动操作不重新模拟 P+ 事件。actor 动作验证身份及 epoch；显示名、角色状态查询和写盘由 Runtime 执行。
 

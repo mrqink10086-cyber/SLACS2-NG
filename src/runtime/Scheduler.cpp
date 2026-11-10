@@ -111,25 +111,19 @@ namespace slacs
 		queue.erase(DeadlineKey{ a_deadline.due, a_deadline.id });
 	}
 
-	std::vector<DeadlineElapsed> Scheduler::takeDue(const GameTime& a_now, std::size_t a_maxItems)
+	std::optional<DeadlineElapsed> Scheduler::popDue(const GameTime& a_now)
 	{
-		std::vector<DeadlineElapsed> elapsed;
-		if (a_maxItems == 0) {
-			return elapsed;
-		}
-		elapsed.reserve(std::min<std::size_t>(a_maxItems, 64));
-		while (elapsed.size() < a_maxItems) {
+		while (true) {
 			const bool calendarReady = !calendarQueue_.empty() &&
 				calendarQueue_.begin()->first <= ClockValue(a_now, ClockDomain::CalendarGameHours);
 			const bool activeReady = !activeQueue_.empty() &&
 				activeQueue_.begin()->first <= ClockValue(a_now, ClockDomain::ActiveSeconds);
 			if (!calendarReady && !activeReady) {
-				break;
+				return std::nullopt;
 			}
 
-			// When both are ready, take the smaller stored due value; calendar wins ties.
 			const bool takeCalendar = calendarReady &&
-				(!activeReady || calendarQueue_.begin()->first <= activeQueue_.begin()->first);
+				(!activeReady || !hasPoppedClock_ || lastPoppedClock_ != ClockDomain::CalendarGameHours);
 			auto& queue = takeCalendar ? calendarQueue_ : activeQueue_;
 			const auto item = *queue.begin();
 			queue.erase(queue.begin());
@@ -140,13 +134,31 @@ namespace slacs
 			}
 			const auto deadline = found->second.deadline;
 			entries_.erase(found);
-			elapsed.push_back(DeadlineElapsed{
+			lastPoppedClock_ = deadline.clock;
+			hasPoppedClock_ = true;
+			return DeadlineElapsed{
 				deadline.id,
 				deadline.actor,
 				deadline.kind,
 				deadline.epoch,
 				deadline.region,
-				deadline.ownerRevision });
+				deadline.ownerRevision };
+		}
+	}
+
+	std::vector<DeadlineElapsed> Scheduler::takeDue(const GameTime& a_now, std::size_t a_maxItems)
+	{
+		std::vector<DeadlineElapsed> elapsed;
+		if (a_maxItems == 0) {
+			return elapsed;
+		}
+		elapsed.reserve(std::min<std::size_t>(a_maxItems, 64));
+		while (elapsed.size() < a_maxItems) {
+			auto due = popDue(a_now);
+			if (!due) {
+				break;
+			}
+			elapsed.push_back(std::move(*due));
 		}
 		return elapsed;
 	}
@@ -186,17 +198,29 @@ namespace slacs
 		return true;
 	}
 
+	std::optional<DeadlineId> Scheduler::popDueSteady(SteadyTime a_now)
+	{
+		if (steadyQueue_.empty() || steadyQueue_.begin()->first > a_now) {
+			return std::nullopt;
+		}
+		const auto item = *steadyQueue_.begin();
+		steadyQueue_.erase(steadyQueue_.begin());
+		steadyEntries_.erase(item.second);
+		return item.second;
+	}
+
 	std::vector<DeadlineId> Scheduler::takeDueSteady(SteadyTime a_now, std::size_t a_maxItems)
 	{
 		std::vector<DeadlineId> ids;
 		if (a_maxItems == 0) {
 			return ids;
 		}
-		while (ids.size() < a_maxItems && !steadyQueue_.empty() && steadyQueue_.begin()->first <= a_now) {
-			const auto item = *steadyQueue_.begin();
-			steadyQueue_.erase(steadyQueue_.begin());
-			steadyEntries_.erase(item.second);
-			ids.push_back(item.second);
+		while (ids.size() < a_maxItems) {
+			auto due = popDueSteady(a_now);
+			if (!due) {
+				break;
+			}
+			ids.push_back(*due);
 		}
 		return ids;
 	}
@@ -232,5 +256,6 @@ namespace slacs
 		calendarQueue_.clear();
 		activeQueue_.clear();
 		steadyQueue_.clear();
+		hasPoppedClock_ = false;
 	}
 }

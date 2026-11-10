@@ -24,9 +24,8 @@ namespace slacs
 			std::memory_order_release);
 	}
 
-	MenuSnapshot MenuState::snapshot()
+	std::shared_ptr<const MenuSnapshot> MenuState::snapshot()
 	{
-		const auto current = Store().load(std::memory_order_acquire);
-		return current ? *current : MenuSnapshot{};
+		return Store().load(std::memory_order_acquire);
 	}
 }

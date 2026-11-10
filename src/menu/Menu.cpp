@@ -575,7 +575,8 @@ namespace slacs
 		void __stdcall renderMenu()
 		{
 			try {
-				const auto snapshot = Menu::snapshot();
+				const auto current = Menu::snapshot();
+				const auto& snapshot = *current;
 				SyncDraft(snapshot);
 				Text("体液覆盖");
 				TextWrapped("设置跨存档共用。点击“应用并保存”后持久保存；“仅应用”只修改本次运行的设置。");
@@ -619,7 +620,7 @@ namespace slacs
 		MenuState::publish(std::move(a_snapshot));
 	}
 
-	MenuSnapshot Menu::snapshot()
+	std::shared_ptr<const MenuSnapshot> Menu::snapshot()
 	{
 		return MenuState::snapshot();
 	}

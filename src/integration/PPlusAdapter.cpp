@@ -160,17 +160,20 @@ namespace slacs
 					return;
 				}
 				gate->owner->handleResult(state, static_cast<int>(step), token, a_result);
+				gate->owner->requestPump();
 			} catch (const std::exception& e) {
 				logs::error("P+ query callback exception: {}", e.what());
 				std::lock_guard lock(gate->mutex);
 				if (!gate->closed && gate->owner) {
 					gate->owner->fail(state, PPlusFailureCode::InvalidQueryData);
+					gate->owner->requestPump();
 				}
 			} catch (...) {
 				logs::error("P+ query callback unknown exception");
 				std::lock_guard lock(gate->mutex);
 				if (!gate->closed && gate->owner) {
 					gate->owner->fail(state, PPlusFailureCode::InvalidQueryData);
+					gate->owner->requestPump();
 				}
 			}
 		}
@@ -206,6 +209,18 @@ namespace slacs
 	{
 		std::lock_guard lock(mutex_);
 		dependencies_ = std::move(a_dependencies);
+	}
+
+	void PPlusAdapter::requestPump()
+	{
+		std::function<void()> wake;
+		{
+			std::lock_guard lock(mutex_);
+			wake = dependencies_.wake;
+		}
+		if (wake) {
+			wake();
+		}
 	}
 
 	QueryStart PPlusAdapter::begin(const OrgasmQuery& a_request)

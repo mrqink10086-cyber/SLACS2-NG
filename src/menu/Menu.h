@@ -3,6 +3,8 @@
 #include "menu/MenuTypes.h"
 #include "runtime/Ingress.h"
 
+#include <memory>
+
 namespace slacs
 {
 	class Menu
@@ -11,7 +13,7 @@ namespace slacs
 		static bool available();
 		static bool install();
 		static void publish(MenuSnapshot a_snapshot);
-		[[nodiscard]] static MenuSnapshot snapshot();
+		[[nodiscard]] static std::shared_ptr<const MenuSnapshot> snapshot();
 		static IngressResult submit(MenuAction a_action);
 	};
 }

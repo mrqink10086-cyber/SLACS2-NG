@@ -114,6 +114,14 @@ namespace
 		Expect(scheduler.takeDue(GameTime{ 20.0, 0.0 }, 8).empty(), "old heap entry invalidated", __LINE__);
 		Expect(scheduler.indexSize() == scheduler.size(), "update leaves one calendar index entry", __LINE__);
 
+		Scheduler single;
+		Expect(!single.popDue(GameTime{ 0.0, 0.0 }), "single pop is empty before due", __LINE__);
+		Expect(single.upsert(MakeDeadline(5, DeadlineKind::TimedClear, ClockDomain::ActiveSeconds, 1.0)) ==
+			DeadlineUpdateStatus::Updated, "single pop deadline inserted", __LINE__);
+		const auto oneDue = single.popDue(GameTime{ 0.0, 1.0 });
+		Expect(oneDue && oneDue->id == 5, "single pop returns one elapsed deadline", __LINE__);
+		Expect(!single.popDue(GameTime{ 0.0, 1.0 }), "single pop consumes deadline exactly once", __LINE__);
+
 		Scheduler sameDue;
 		auto latestPayload = MakeDeadline(30, DeadlineKind::NaturalDecay, ClockDomain::CalendarGameHours, 12.0, Region::BodyVaginal);
 		Expect(sameDue.upsert(latestPayload) == DeadlineUpdateStatus::Updated, "same-due payload inserted", __LINE__);
@@ -194,6 +202,41 @@ namespace
 		Expect(first.size() == 2 && second.size() == 2 && third.size() == 1, "takeDue respects item budget", __LINE__);
 		Expect(scheduler.size() == 0, "scheduler empty after budget drain", __LINE__);
 
+		Scheduler fair;
+		constexpr DeadlineId calendarBase = 1000;
+		constexpr DeadlineId activeBase = 2000;
+		constexpr std::size_t perClock = 300;
+		for (std::size_t i = 0; i < perClock; ++i) {
+			const auto offset = static_cast<DeadlineId>(i);
+			Expect(fair.upsert(MakeDeadline(calendarBase + offset, DeadlineKind::NaturalDecay,
+				ClockDomain::CalendarGameHours, static_cast<double>(i + 1), Region::BodyVaginal)) ==
+				DeadlineUpdateStatus::Updated, "calendar fairness deadline inserted", __LINE__);
+			Expect(fair.upsert(MakeDeadline(activeBase + offset, DeadlineKind::TimedClear,
+				ClockDomain::ActiveSeconds, static_cast<double>(1000000 + i))) ==
+				DeadlineUpdateStatus::Updated, "active fairness deadline inserted", __LINE__);
+		}
+		const auto fairSlice = fair.takeDue(GameTime{ 1000.0, 2000000.0 }, 256);
+		std::size_t calendarTaken = 0;
+		std::size_t activeTaken = 0;
+		DeadlineId lastCalendarId = calendarBase - 1;
+		DeadlineId lastActiveId = activeBase - 1;
+		for (const auto& elapsed : fairSlice) {
+			if (elapsed.id >= calendarBase && elapsed.id < activeBase) {
+				Expect(elapsed.id > lastCalendarId, "calendar deadlines keep due order", __LINE__);
+				lastCalendarId = elapsed.id;
+				++calendarTaken;
+			} else if (elapsed.id >= activeBase && elapsed.id < activeBase + perClock) {
+				Expect(elapsed.id > lastActiveId, "active deadlines keep due order", __LINE__);
+				lastActiveId = elapsed.id;
+				++activeTaken;
+			}
+		}
+		Expect(fairSlice.size() == 256 && calendarTaken == 128 && activeTaken == 128,
+			"one deadline budget advances both due clock domains", __LINE__);
+		Expect(fair.size() == 344, "fair slice leaves both domains pending", __LINE__);
+		fair.clear();
+		Expect(!fair.popDue(GameTime{ 1000.0, 2000000.0 }), "clear removes both fair queues", __LINE__);
+
 		Expect(scheduler.upsert(MakeDeadline(20, DeadlineKind::TimedClear, ClockDomain::CalendarGameHours, 1.0)) ==
 			DeadlineUpdateStatus::RejectedInvalid, "kind/clock mismatch rejected", __LINE__);
 		Expect(scheduler.upsert(MakeDeadline(21, DeadlineKind::NaturalDecay, ClockDomain::CalendarGameHours, 1.0)) ==
@@ -210,6 +253,14 @@ namespace
 		const auto steady = scheduler.takeDueSteady(steadyStart + std::chrono::milliseconds{ 5 }, 4);
 		Expect(steady.size() == 1 && steady.front() == 1, "steady stable id fires once", __LINE__);
 		Expect(scheduler.takeDueSteady(steadyStart + std::chrono::seconds{ 1 }, 4).empty(), "steady old entry dropped", __LINE__);
+
+		Scheduler singleSteady;
+		Expect(!singleSteady.popDueSteady(steadyStart), "single steady pop is empty before due", __LINE__);
+		Expect(singleSteady.upsertSteady(2, steadyStart) == DeadlineUpdateStatus::Updated,
+			"single steady deadline inserted", __LINE__);
+		const auto oneSteadyDue = singleSteady.popDueSteady(steadyStart);
+		Expect(oneSteadyDue && *oneSteadyDue == 2, "single steady pop returns one id", __LINE__);
+		Expect(!singleSteady.popDueSteady(steadyStart), "single steady pop consumes id exactly once", __LINE__);
 	}
 
 	void CheckDecay()
