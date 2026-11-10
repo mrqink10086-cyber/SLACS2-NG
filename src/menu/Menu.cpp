@@ -171,6 +171,8 @@ namespace slacs
 			bool initialized{};
 			Settings draft;
 			ActorId selectedActor{};
+			Revision selectionRevision{};
+			bool femaleCandidatesOnly{ true };
 			std::array<bool, kRegionCount> testRegions{ true, true, true, true, true, true, true };
 			int testCount{ 1 };
 			int testVariant{};
@@ -191,6 +193,7 @@ namespace slacs
 				state.initialized = true;
 				state.draft = a_snapshot.settings;
 				state.selectedActor = 0;
+				state.selectionRevision = 0;
 				state.testCount = 1;
 				state.testVariant = 0;
 				state.testRegions = { true, true, true, true, true, true, true };
@@ -286,7 +289,7 @@ namespace slacs
 
 			api().checkbox("所有目标使用 Mega 贴图", &state.draft.megaCumForAll);
 			api().checkbox("允许女性来源的体液", &state.draft.allowFemaleFluid);
-			api().checkbox("女性目标仅限玩家或随从", &state.draft.femaleTargetsRequirePlayerOrFollower);
+			TextDisabled("自动目标支持全部成年女性 NPC，无需随从身份。");
 			api().checkbox("启用体液效果法术", &state.draft.effectsEnabled);
 
 			api().beginDisabled(!state.draft.effectsEnabled);
@@ -400,13 +403,31 @@ namespace slacs
 		void RenderMaintenance(const MenuSnapshot& snapshot)
 		{
 			auto& state = ui();
-
-
+			if (state.selectionRevision != snapshot.selectionRevision) {
+				state.selectionRevision = snapshot.selectionRevision;
+				state.selectedActor = snapshot.selectedCandidate;
+				state.femaleCandidatesOnly = false;
+			}
+			if (api().button("刷新已加载 NPC", {})) {
+				Submit(RefreshActorCandidates{ snapshot.epoch });
+			}
+			SameLine();
+			if (api().button("选择准星 NPC", {})) {
+				Submit(SelectCrosshairActor{ snapshot.epoch });
+			}
+			api().checkbox("候选只显示女性（始终显示玩家和已跟踪角色）", &state.femaleCandidatesOnly);
+			TextDisabled("面向 NPC 后打开菜单，可选择准星目标；列表在刷新时扫描。点击角色行后添加测试覆盖。");
+			if (!snapshot.actorFeedback.empty()) {
+				TextWrapped(snapshot.actorFeedback);
+			}
 			if (snapshot.actors.empty()) {
 				TextDisabled("当前会话尚未跟踪任何角色。");
 				state.selectedActor = 0;
 			} else {
 				for (const auto& row : snapshot.actors) {
+					if (state.femaleCandidatesOnly && !row.tracked && !row.isPlayer && !row.isFemale) {
+						continue;
+					}
 					std::string label = row.displayName.empty() ? "未命名角色" : row.displayName;
 					label += "  ";
 					label += HexForm(row.formId);

@@ -5,6 +5,22 @@
 
 namespace slacs
 {
+	inline bool ShouldIncludePPlusTarget(
+		bool a_maleSource,
+		std::int32_t a_targetSex,
+		bool a_femaleTargetIsEligibleNpc)
+	{
+		const bool femaleTarget = a_targetSex == 1 || a_targetSex == 2 || a_targetSex == 4;
+		const bool maleTarget = a_targetSex == 0 || a_targetSex == 3;
+		if (!femaleTarget && !maleTarget) {
+			return false;
+		}
+		if (!a_maleSource && !femaleTarget) {
+			return false;
+		}
+		return !femaleTarget || a_femaleTargetIsEligibleNpc;
+	}
+
 	struct PPlusInteractionFlags
 	{
 		bool vaginal{};

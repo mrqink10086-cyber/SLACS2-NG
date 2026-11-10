@@ -1,8 +1,15 @@
 #include "integration/OverlayAdapter.h"
 
+#include <algorithm>
 #include <array>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <map>
 #include <string_view>
+#include <variant>
+#include <vector>
 
 namespace
 {
@@ -43,13 +50,154 @@ namespace
 		return target;
 	}
 
-	void Setup(OverlayAdapter& a_adapter)
+	void Setup(OverlayAdapter& a_adapter, std::filesystem::path a_dataRoot = "overlay-test-no-optional-maps")
 	{
 		fakeOverride.data.clear();
 		fakeOverride.writes = 0;
 		fakeOverride.setNodePropertiesCalls = 0;
 		fakeOverlay.counts = { 6, 3, 3, 3 };
-		a_adapter.setDependencies({ [] { return std::filesystem::path("overlay-test-no-optional-maps"); }, [] { return 1; }, {} });
+		fakeOverlay.countCalls = 0;
+		fakeOverlay.formatCalls = 0;
+		fakeOverlay.addOverlaysCalls = 0;
+		fakeOverride.getCalls = 0;
+		fakeOverride.hasCalls = 0;
+		a_adapter.setDependencies({ [dataRoot = std::move(a_dataRoot)] { return dataRoot; }, [] { return 1; }, {} });
+	}
+
+	struct OptionalTextureFixture
+	{
+		std::filesystem::path root = std::filesystem::temp_directory_path() /
+			("slacs-overlay-drift-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+
+		OptionalTextureFixture()
+		{
+			const auto folder = root / "Textures" / "slacs2" / "Vaginal";
+			std::filesystem::create_directories(folder);
+			std::ofstream(folder / "body1_n.dds").put('n');
+			std::ofstream(folder / "body1_s.dds").put('s');
+		}
+
+		~OptionalTextureFixture()
+		{
+			std::error_code error;
+			std::filesystem::remove_all(root, error);
+		}
+	};
+
+	void CheckApiCallMetrics()
+	{
+		OverlayAdapter adapter;
+		Setup(adapter);
+		(void)adapter.reconcile(actor, Target(Region::BodyVaginal), Settings{});
+		const auto firstGets = fakeOverride.getCalls;
+		const auto firstHas = fakeOverride.hasCalls;
+		Expect(firstGets < 42, "slot snapshots reduce first reconcile GetNodeOverride calls below baseline");
+		std::cout << "overlay API after first reconcile: get=" << firstGets
+			<< " has=" << firstHas << " format=" << fakeOverlay.formatCalls
+			<< " count=" << fakeOverlay.countCalls << " addOverlays=" << fakeOverlay.addOverlaysCalls << '\n';
+		fakeOverride.getCalls = 0;
+		fakeOverride.hasCalls = 0;
+		fakeOverlay.formatCalls = 0;
+		fakeOverlay.countCalls = 0;
+		fakeOverlay.addOverlaysCalls = 0;
+		(void)adapter.reconcile(actor, Target(Region::BodyVaginal), Settings{});
+		Expect(fakeOverride.getCalls == 20 && fakeOverride.hasCalls == 0,
+			"unchanged full target validates each owned slot once without rescanning the pool");
+		std::cout << "overlay API after unchanged reconcile: get=" << fakeOverride.getCalls
+			<< " has=" << fakeOverride.hasCalls << " format=" << fakeOverlay.formatCalls
+			<< " count=" << fakeOverlay.countCalls << " addOverlays=" << fakeOverlay.addOverlaysCalls << '\n';
+	}
+
+	void CheckDistinctLayerSlots()
+	{
+		for (const auto region : { Region::BodyVaginal, Region::BodyLegs }) {
+			OverlayAdapter adapter;
+			Setup(adapter);
+			auto target = Target(region);
+			if (region == Region::BodyLegs) {
+				target.layers.back().textureIndex = 4;
+			}
+			const auto result = adapter.reconcile(actor, target, Settings{});
+			const auto expectedDistinct = region == Region::BodyLegs ? 4U : 5U;
+			std::vector<std::string> textures;
+			for (unsigned slot = 0; slot < 5; ++slot) {
+				const auto it = fakeOverride.data.find({ Node(slot), 9, 0 });
+				if (it != fakeOverride.data.end()) {
+					textures.push_back(std::get<std::string>(it->second));
+				}
+			}
+			std::sort(textures.begin(), textures.end());
+			textures.erase(std::unique(textures.begin(), textures.end()), textures.end());
+			Expect(result.slotsApplied == 5, "five logical layers occupy five independent RaceMenu nodes");
+			Expect(textures.size() == expectedDistinct,
+				"each layer uses its textureIndex; only the four-texture legs pool repeats one texture");
+		}
+	}
+
+	void CheckAppendingLayerPreservesSlots()
+	{
+		OverlayAdapter adapter;
+		Setup(adapter);
+		fakeOverlay.counts[0] = 5;
+		auto target = Target(Region::BodyVaginal, 2);
+		adapter.reconcile(actor, target, Settings{});
+		std::array<std::map<IOverrideInterface::Key, std::variant<std::string, float>>, 2> priorMaterials;
+		for (unsigned slot = 0; slot < priorMaterials.size(); ++slot) {
+			for (const auto& [key, value] : fakeOverride.data) {
+				if (std::get<0>(key) == Node(slot)) priorMaterials[slot].emplace(key, value);
+			}
+		}
+		const auto priorWrites = fakeOverride.writes;
+		target.layers.push_back({ 999, 3, TextureVariant::Normal });
+		++target.revision;
+		const auto result = adapter.reconcile(actor, target, Settings{});
+		Expect(result.status == OverlayStatus::Applied && result.slotsApplied == 3,
+			"appending a layer applies the expanded target");
+		for (unsigned slot = 0; slot < priorMaterials.size(); ++slot) {
+			for (const auto& [key, value] : priorMaterials[slot]) {
+				const auto found = fakeOverride.data.find(key);
+				Expect(found != fakeOverride.data.end() && found->second == value,
+					"appending a layer leaves each existing slot material unchanged");
+			}
+		}
+		Expect(fakeOverride.writes == priorWrites + 4,
+			"appending one layer writes only the four material keys for its new slot");
+		Expect(std::get<std::string>(fakeOverride.data.at({ Node(2), 9, 0 })) == "textures\\slacs2\\Vaginal\\body3.dds",
+			"the appended layer claims the next free RaceMenu slot");
+	}
+
+	void CheckUnchangedTargetRepairsLiveMaterial()
+	{
+		OverlayAdapter adapter;
+		OptionalTextureFixture textureFixture;
+		Setup(adapter, textureFixture.root);
+		Settings settings;
+		settings.overlayOpacity = 0.25F;
+		const auto target = Target(Region::BodyVaginal, 1);
+		adapter.reconcile(actor, target, settings);
+		const auto diffusePath = std::string("textures\\slacs2\\Vaginal\\body1.dds");
+		const auto ownedDiffuse = std::find_if(fakeOverride.data.begin(), fakeOverride.data.end(), [](const auto& entry) {
+			return std::get<1>(entry.first) == 9 && std::get<2>(entry.first) == 0 &&
+				std::get_if<std::string>(&entry.second) &&
+				*std::get_if<std::string>(&entry.second) == "textures\\slacs2\\Vaginal\\body1.dds";
+		});
+		Expect(ownedDiffuse != fakeOverride.data.end(), "initial projection owns the expected diffuse node");
+		const std::string node = ownedDiffuse != fakeOverride.data.end() ? std::get<0>(ownedDiffuse->first) : Node(0);
+		const auto checkRepair = [&](unsigned a_key, unsigned a_index, std::string_view a_expected, std::string_view a_message) {
+			fakeOverride.data.erase({ node, a_key, a_index });
+			const auto result = adapter.reconcile(actor, target, settings);
+			const auto found = fakeOverride.data.find({ node, a_key, a_index });
+			Expect(result.status == OverlayStatus::Applied, "same-revision material drift is reapplied");
+			Expect(found != fakeOverride.data.end() && std::get<std::string>(found->second) == a_expected, a_message);
+		};
+		checkRepair(9, 0, diffusePath, "missing diffuse is restored for an unchanged target");
+		checkRepair(9, 1, "textures\\slacs2\\Vaginal\\body1_n.dds", "missing normal map is restored for an unchanged target");
+		checkRepair(9, 2, "textures\\slacs2\\Vaginal\\body1_s.dds", "missing specular map is restored for an unchanged target");
+		fakeOverride.data[{ node, 8, 255 }] = 0.7F;
+		const auto alphaResult = adapter.reconcile(actor, target, settings);
+		Expect(alphaResult.status == OverlayStatus::Applied, "same-revision alpha drift is reapplied");
+		Expect(std::get<float>(fakeOverride.data.at({ node, 8, 255 })) == 0.25F,
+			"changed alpha is restored for an unchanged target");
 	}
 
 	unsigned Visible(unsigned a_count, std::string_view a_prefix, std::string_view a_domain = "Body")
@@ -316,6 +464,10 @@ namespace
 
 int main()
 {
+	CheckApiCallMetrics();
+	CheckDistinctLayerSlots();
+	CheckAppendingLayerPreservesSlots();
+	CheckUnchangedTargetRepairsLiveMaterial();
 	CheckBlankSlots();
 	CheckRaceMenuCapacities();
 	CheckCapacityGrowth();

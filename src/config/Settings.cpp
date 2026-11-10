@@ -541,7 +541,6 @@ namespace slacs
 			}
 
 			ReadBool(a_root, "allowFemaleFluid", value.allowFemaleFluid, a_issues);
-			ReadBool(a_root, "femaleTargetsRequirePlayerOrFollower", value.femaleTargetsRequirePlayerOrFollower, a_issues);
 			ReadBoolArray(a_root, "enabledSourceClasses", value.enabledSourceClasses.data(), value.enabledSourceClasses.size(), a_issues);
 			ReadBool(a_root, "megaCumForAll", value.megaCumForAll, a_issues);
 
@@ -716,7 +715,6 @@ namespace slacs
 		file << "  \"spellLevel1Threshold\": " << static_cast<std::uint32_t>(a_value.spellLevel1Threshold) << ",\n";
 		file << "  \"spellLevel2Threshold\": " << static_cast<std::uint32_t>(a_value.spellLevel2Threshold) << ",\n";
 		file << "  \"allowFemaleFluid\": " << (a_value.allowFemaleFluid ? "true" : "false") << ",\n";
-		file << "  \"femaleTargetsRequirePlayerOrFollower\": " << (a_value.femaleTargetsRequirePlayerOrFollower ? "true" : "false") << ",\n";
 		file << "  \"enabledSourceClasses\": [";
 		for (std::size_t i = 0; i < a_value.enabledSourceClasses.size(); ++i) {
 			if (i != 0) {

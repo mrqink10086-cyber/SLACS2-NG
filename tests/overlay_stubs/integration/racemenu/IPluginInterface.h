@@ -15,8 +15,12 @@ public:
 	enum class OverlayType { Normal, Spell };
 	enum class OverlayLocation { Body, Hand, Feet, Face };
 	std::array<unsigned, 4> counts{ 6, 3, 3, 3 };
+	unsigned countCalls{};
+	unsigned formatCalls{};
+	unsigned addOverlaysCalls{};
 	unsigned GetOverlayCount(OverlayType, OverlayLocation a_location)
 	{
+		++countCalls;
 		switch (a_location) {
 		case OverlayLocation::Body: return counts[0];
 		case OverlayLocation::Hand: return counts[1];
@@ -27,6 +31,7 @@ public:
 	}
 	const char* GetOverlayFormat(OverlayType, OverlayLocation a_location)
 	{
+		++formatCalls;
 		switch (a_location) {
 		case OverlayLocation::Body: return "Body [Ovl{}]";
 		case OverlayLocation::Hand: return "Hands [Ovl{}]";
@@ -36,7 +41,7 @@ public:
 		return "";
 	}
 	bool RegisterInstallCallback(const char*, void(*)(RE::TESObjectREFR*, RE::NiAVObject*)) { return true; }
-	void AddOverlays(RE::TESObjectREFR*, bool) {}
+	void AddOverlays(RE::TESObjectREFR*, bool) { ++addOverlaysCalls; }
 };
 
 class IOverrideInterface
@@ -62,13 +67,17 @@ public:
 	using Key = std::tuple<std::string, unsigned, unsigned>;
 	std::map<Key, std::variant<std::string, float>> data;
 	unsigned writes{};
+	unsigned getCalls{};
+	unsigned hasCalls{};
 	unsigned setNodePropertiesCalls{};
 	bool HasNodeOverride(RE::TESObjectREFR*, bool, const char* a_node, std::uint16_t a_key, std::uint8_t a_index)
 	{
+		++hasCalls;
 		return data.contains({ a_node, a_key, a_index });
 	}
 	bool GetNodeOverride(RE::TESObjectREFR*, bool, const char* a_node, std::uint16_t a_key, std::uint8_t a_index, GetVariant& a_value)
 	{
+		++getCalls;
 		const auto it = data.find({ a_node, a_key, a_index });
 		if (it == data.end()) {
 			return false;

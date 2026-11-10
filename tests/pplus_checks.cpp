@@ -19,6 +19,15 @@ namespace
 
 int main()
 {
+	Expect(ShouldIncludePPlusTarget(true, 1, true), "male source can target an adult female NPC without player or follower status");
+	Expect(ShouldIncludePPlusTarget(true, 2, true), "male source can target a futa NPC");
+	Expect(ShouldIncludePPlusTarget(true, 0, false) && ShouldIncludePPlusTarget(true, 3, false),
+		"male source keeps existing male target eligibility");
+	Expect(!ShouldIncludePPlusTarget(false, 0, true), "female source still cannot target a male actor");
+	Expect(ShouldIncludePPlusTarget(false, 1, true), "female source can target an adult female NPC");
+	Expect(!ShouldIncludePPlusTarget(true, 1, false), "child or creature female targets remain excluded");
+	Expect(!ShouldIncludePPlusTarget(true, 5, true), "unknown target sex is excluded");
+
 	const PPlusInteractionFlags allTags{ true, true, true, true, true, true, true };
 	const std::array<std::int32_t, 1> vaginal{ 1 };
 	const auto dyad = ResolvePPlusInteractions(allTags, vaginal, true, true);

@@ -80,7 +80,18 @@ namespace slacs
 		SessionEpoch epoch{};
 	};
 
-	using MenuAction = std::variant<ApplySettings, ClearActor, RefreshActor, TestAdd, TestClear>;
+	struct RefreshActorCandidates
+	{
+		SessionEpoch epoch{};
+	};
+
+	struct SelectCrosshairActor
+	{
+		SessionEpoch epoch{};
+	};
+
+	using MenuAction = std::variant<ApplySettings, ClearActor, RefreshActor, TestAdd, TestClear,
+		RefreshActorCandidates, SelectCrosshairActor>;
 
 	struct ActorVisualInvalidated
 	{

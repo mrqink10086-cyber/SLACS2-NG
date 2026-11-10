@@ -3,7 +3,7 @@ includes("lib/commonlibsse-ng")
 
 -- set project constants
 set_project("SLACS2 NG")
-set_version("1.0.3")
+set_version("1.0.4")
 set_license("GPL-3.0")
 set_languages("c++23")
 set_encodings("utf-8")
@@ -113,11 +113,11 @@ target("slacs_pplus_checks")
     add_files("tests/pplus_checks.cpp")
     add_includedirs("src")
 
-target("slacs_followers_checks")
+target("slacs_actor_candidates_checks")
     set_kind("binary")
     set_default(false)
-    add_files("tests/followers_checks.cpp", "src/integration/Followers.cpp")
-    add_includedirs("tests/followers_stubs", "src")
+    add_files("tests/actor_candidates_checks.cpp", "src/integration/ActorCandidates.cpp")
+    add_includedirs("tests/actor_candidates_stubs", "src")
 
 target("slacs_retry_schedule_checks")
     set_kind("binary")

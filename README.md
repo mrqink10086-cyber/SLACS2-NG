@@ -7,7 +7,7 @@ SLACS2 NG 是 SLACS 2 的原生 C++ 重写：把原来由 Papyrus、StorageUtil�
 - 菜单改用 SKSE Menu Framework，单一入口、同页分组的全中文界面。
 - 面向新档设计，存档格式为版本化 co-save；全局配置在 `Data/SKSE/Plugins/SLACS2NG.json`。
 
-当前版本 **1.0.3**。本版自动使用 RaceMenu 实际加载的槽位容量，角色列表包含当前已加载的随从，并为失败重试加入限频。**尚未在游戏内验收**，详见下方“验证状态”。
+当前版本 **1.0.4**。自动目标支持全部成年女性 NPC；菜单可刷新已加载 NPC 或选择准星角色。新增覆盖层保留旧层槽位，只提交变化的材质。**尚未在游戏内验收**，详见下方“验证状态”。
 
 ## 功能
 
@@ -17,6 +17,7 @@ SLACS2 NG 是 SLACS 2 的原生 C++ 重写：把原来由 Papyrus、StorageUtil�
 - **26 个效果组合**：口腔 × 阴道 × 肛门 × 等级（0/1/2），FormID 从 ESP 解析，索引 0 为关闭占位。
 - **RaceMenu 覆盖层**：通过 `skee64` 接口读取实际加载的 INI 容量，自动分配空槽与本插件已有槽，保留其他模组占用；槽位不足时保留逻辑层并限频重试。
 - **中文设置菜单**：打开“体液覆盖/设置”，在同页展开覆盖层、衰减清洗及角色管理分组，统一应用或保存。配置跨存档共用；菜单只读运行时快照并提交值命令，动作携带会话 epoch，换档后旧动作被拒绝。
+- **NPC 支持**：自动过程不要求玩家或随从在场；成年女性 NPC 可接收覆盖层。菜单点击“刷新已加载 NPC”后选择角色，或面向角色后打开菜单并点击“选择准星 NPC”。候选列表按需刷新，常规 pump 不枚举场景角色。
 - **诊断**：每 60 秒输出一行 `Perf` 统计（actor 数、环境采样、覆盖层提交、pump 耗时、队列深度、P+ 请求延迟）。
 
 ## 运行环境
@@ -51,7 +52,7 @@ xmake build -y "SLACS2 NG"
 foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7_checks",
                "slacs_s5_persistence_checks","slacs_s8_checks","slacs_s9_checks",
                "slacs_overlay_checks","slacs_effects_checks","slacs_pplus_checks",
-               "slacs_followers_checks","slacs_retry_schedule_checks") {
+               "slacs_actor_candidates_checks","slacs_retry_schedule_checks") {
   xmake build -y $t
   & "build/windows/x64/release/$t.exe"
 }
@@ -63,7 +64,7 @@ foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7
 py tools/release.py
 ```
 
-输出为 `artifacts/SLACS2NG-1.0.3/`、同名 ZIP 和文件清单。
+输出为 `artifacts/SLACS2NG-1.0.4/`、同名 ZIP 和文件清单。
 
 ## 安装
 
@@ -102,7 +103,7 @@ docs             PLAN、INTERFACES、SESSION-01..05、AUDIT、RELEASE-NOTES
 | 项目 | 状态 |
 | --- | --- |
 | DLL / PEX / ESP / 264 贴图 / 字体 / 菜单资源构建 | 构建完成，`tools/package.py` 全部校验通过 |
-| 十二组宿主检查（逻辑、调度、序列化、菜单、时钟、适配器、随从、重试） | 全部通过 |
+| 十二组宿主检查（逻辑、调度、序列化、菜单、时钟、适配器、NPC 候选、重试） | 全部通过 |
 | LLVM 20 AddressSanitizer | 历史检查结果见审计文档；本版宿主检查不能替代游戏内验证 |
 | 菜单动作贯通 UI → Runtime → Core → 外观/效果 | 待游戏验收 |
 | 读档、换档、tid 复用、异步取消 | 待游戏验收 |
@@ -114,6 +115,7 @@ docs             PLAN、INTERFACES、SESSION-01..05、AUDIT、RELEASE-NOTES
 ## 已知限制
 
 - RaceMenu 默认容量只能显示部分图层；Body 四区域共享身体槽位，完整容量要求见安装说明。
+- Body 主三区和 Face 各有 12 张贴图，可选五张不同贴图叠加；Legs、Hands、Feet 各只有 4 张，第五层会复用其中一张，但仍占独立槽位。
 - 未接入 BiS / DnB：没有验证过的外部信号，不写“已支持”。
 - UBE 贴图不在发布包内，缺 `textures/slacs2_ube` 是预期状态。
 - 保存快照可能比最新一次 pump 晚一拍；保存回调不等待 VM、任务或材质。

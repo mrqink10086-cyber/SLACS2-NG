@@ -295,6 +295,11 @@ namespace slacs
 
 		const auto configured = OverlayCount(overlay, profile.domain);
 		const std::size_t availableSlots = configured;
+		std::vector<std::string> nodeNames;
+		nodeNames.reserve(availableSlots);
+		for (std::size_t slotIndex = 0; slotIndex < availableSlots; ++slotIndex) {
+			nodeNames.push_back(nodeNameForSlot(format, static_cast<std::uint8_t>(slotIndex)));
+		}
 
 		const std::uint64_t key = (a_target.actor << 3) | static_cast<std::uint64_t>(RegionIndex(a_target.region));
 		const auto cached = applied_.find(key);
@@ -302,24 +307,22 @@ namespace slacs
 			return failure(a_target.actor, a_target.region, a_target.revision, OverlayStatus::StaleRevision, OverlayErrorCode::StaleRevision);
 		}
 
-		const auto isReservedByOtherRegion = [&](std::uint8_t a_slot) {
-			for (const auto& [otherKey, otherRegion] : applied_) {
-				if (otherKey == key || static_cast<ActorId>(otherKey >> 3) != a_target.actor) {
-					continue;
-				}
-				const auto otherRegionIndex = static_cast<std::size_t>(otherKey & 0x7);
-				if (otherRegionIndex >= kRegionCount ||
-					ProfileFor(static_cast<Region>(otherRegionIndex)).domain != profile.domain) {
-					continue;
-				}
-				if (std::any_of(otherRegion.slots.begin(), otherRegion.slots.end(), [&](const AppliedSlot& a_owned) {
-						return a_owned.slot == a_slot;
-					})) {
-					return true;
+		std::vector<std::uint8_t> reservedByOther(availableSlots, 0);
+		for (const auto& [otherKey, otherRegion] : applied_) {
+			if (otherKey == key || static_cast<ActorId>(otherKey >> 3) != a_target.actor) {
+				continue;
+			}
+			const auto otherRegionIndex = static_cast<std::size_t>(otherKey & 0x7);
+			if (otherRegionIndex >= kRegionCount ||
+				ProfileFor(static_cast<Region>(otherRegionIndex)).domain != profile.domain) {
+				continue;
+			}
+			for (const auto& owned : otherRegion.slots) {
+				if (owned.slot < reservedByOther.size()) {
+					reservedByOther[owned.slot] = 1;
 				}
 			}
-			return false;
-		};
+		}
 
 		const auto domainIndex = static_cast<std::size_t>(profile.domain);
 		const auto domainBit = static_cast<std::uint8_t>(1U << domainIndex);
@@ -330,7 +333,7 @@ namespace slacs
 			constexpr std::array cleanupRegions{ Region::BodyVaginal, Region::Face, Region::Hands, Region::Feet };
 			bool removed = false;
 			for (std::uint32_t slot = 0; slot < configured; ++slot) {
-				removed |= resetSlotIfOurs(reference, female, nodeNameForSlot(format, static_cast<std::uint8_t>(slot)), cleanupRegions[domainIndex]);
+					removed |= resetSlotIfOurs(reference, female, nodeNames[slot], cleanupRegions[domainIndex]);
 			}
 			if (removed) overrideApi->SetNodeProperties(reference, true);
 			restored |= domainBit;
@@ -340,17 +343,18 @@ namespace slacs
 			bool removed = false;
 			if (cached != applied_.end()) {
 				for (const auto& slot : cached->second.slots) {
-					removeSlot(reference, female, nodeNameForSlot(format, slot.slot), slot, a_target.region);
+						const auto node = slot.slot < nodeNames.size() ? nodeNames[slot.slot] : nodeNameForSlot(format, slot.slot);
+						removeSlot(reference, female, node, slot, a_target.region);
 					removed = true;
 				}
 				applied_.erase(cached);
 			}
 			for (std::size_t slotIndex = 0; slotIndex < availableSlots; ++slotIndex) {
 				const auto slot = static_cast<std::uint8_t>(slotIndex);
-				if (isReservedByOtherRegion(slot)) {
+					if (reservedByOther[slot] != 0) {
 					continue;
 				}
-				if (resetSlotIfOurs(reference, female, nodeNameForSlot(format, slot), a_target.region)) {
+					if (resetSlotIfOurs(reference, female, nodeNames[slot], a_target.region)) {
 					removed = true;
 				}
 			}
@@ -363,98 +367,204 @@ namespace slacs
 		std::vector<Assignment> assignments;
 		assignments.reserve(a_target.layers.size());
 		bool partial = false;
+		bool materialDrift = false;
+		const auto* previous = cached != applied_.end() ? &cached->second : nullptr;
+		std::vector<SlotSnapshot> snapshots(availableSlots);
+
+		const auto ensureDiffuse = [&](std::size_t a_slot) -> SlotSnapshot& {
+			auto& snapshot = snapshots[a_slot];
+			if (!snapshot.diffuseRead) {
+				snapshot.hasDiffuse = readDiffuse(reference, female, nodeNames[a_slot], snapshot.diffuse);
+				snapshot.diffuseRead = true;
+			}
+			return snapshot;
+		};
+		const auto ensureNormal = [&](std::size_t a_slot) -> SlotSnapshot& {
+			auto& snapshot = snapshots[a_slot];
+			if (!snapshot.normalRead) {
+				snapshot.hasNormal = readTexture(reference, female, nodeNames[a_slot], kTextureNormalIndex, snapshot.normal);
+				snapshot.normalRead = true;
+			}
+			return snapshot;
+		};
+		const auto ensureSpecular = [&](std::size_t a_slot) -> SlotSnapshot& {
+			auto& snapshot = snapshots[a_slot];
+			if (!snapshot.specularRead) {
+				snapshot.hasSpecular = readTexture(reference, female, nodeNames[a_slot], kTextureSpecularIndex, snapshot.specular);
+				snapshot.specularRead = true;
+			}
+			return snapshot;
+		};
+		const auto ensureMaterial = [&](std::size_t a_slot) -> SlotSnapshot& {
+			auto& snapshot = snapshots[a_slot];
+			if (!snapshot.materialRead) {
+				snapshot.hasMaterial = overrideApi->HasNodeOverride(reference, female, nodeNames[a_slot].c_str(), 6, 0xFF);
+				snapshot.materialRead = true;
+			}
+			return snapshot;
+		};
+		const auto ensureAlpha = [&](std::size_t a_slot) -> SlotSnapshot& {
+			auto& snapshot = snapshots[a_slot];
+			if (!snapshot.alphaRead) {
+				FloatReader alpha;
+				snapshot.hasAlpha = overrideApi->GetNodeOverride(reference, female, nodeNames[a_slot].c_str(), kShaderAlphaKey, kAlphaIndex, alpha) && alpha.present;
+				snapshot.alpha = alpha.value;
+				snapshot.alphaRead = true;
+			}
+			return snapshot;
+		};
+		const auto appearsFree = [&](std::size_t a_slot) {
+			auto& snapshot = ensureDiffuse(a_slot);
+			if (snapshot.hasDiffuse && !snapshot.diffuse.empty()) {
+				if (isOurTexture(snapshot.diffuse)) return true;
+				if (!isDefaultTexture(snapshot.diffuse)) return false;
+			}
+			if (ensureMaterial(a_slot).hasMaterial) return false;
+			if (profile.hasNormal && !ensureNormal(a_slot).normal.empty()) return false;
+			if (profile.hasSpecular && !ensureSpecular(a_slot).specular.empty()) return false;
+			return true;
+		};
+		const auto matchesAppliedMaterial = [&](std::size_t a_slot, const AppliedSlot& a_prior) {
+			auto& snapshot = ensureDiffuse(a_slot);
+			if (!snapshot.hasDiffuse || !equalsIgnoreCase(snapshot.diffuse, a_prior.diffuse)) return false;
+			if (profile.hasNormal) {
+				auto& normal = ensureNormal(a_slot);
+				if (a_prior.normal.empty() ?
+					(normal.hasNormal && !normal.normal.empty()) :
+					(!normal.hasNormal || !equalsIgnoreCase(normal.normal, a_prior.normal))) {
+					return false;
+				}
+			}
+			if (profile.hasSpecular) {
+				auto& specular = ensureSpecular(a_slot);
+				if (a_prior.specular.empty() ?
+					(specular.hasSpecular && !specular.specular.empty()) :
+					(!specular.hasSpecular || !equalsIgnoreCase(specular.specular, a_prior.specular))) {
+					return false;
+				}
+			}
+			if (a_prior.hasAlpha) {
+				const auto& alpha = ensureAlpha(a_slot);
+				if (!alpha.hasAlpha || alpha.alpha != a_prior.alpha) return false;
+			}
+			return true;
+		};
 
 		if (!a_target.layers.empty()) {
-			std::vector<bool> usedSlot(availableSlots, false);
-			std::vector<bool> assignedLayer(a_target.layers.size(), false);
-			const auto* previous = cached != applied_.end() ? &cached->second : nullptr;
-			for (std::size_t slotIndex = 0; slotIndex < availableSlots; ++slotIndex) {
-				usedSlot[slotIndex] = isReservedByOtherRegion(static_cast<std::uint8_t>(slotIndex));
-			}
-
-			const auto priorForSlot = [&](std::uint8_t a_slot) -> const AppliedSlot* {
-				if (!previous) {
-					return nullptr;
+			std::vector<const AppliedSlot*> priorBySlot(availableSlots, nullptr);
+			if (previous) {
+				for (const auto& slot : previous->slots) {
+					if (slot.slot < priorBySlot.size()) priorBySlot[slot.slot] = &slot;
 				}
-				for (const auto& candidate : previous->slots) {
-					if (candidate.slot == a_slot) {
-						return &candidate;
+			}
+			std::vector<const AppliedSlot*> priorByLayer(a_target.layers.size(), nullptr);
+			if (previous) {
+				for (std::size_t layerIndex = 0; layerIndex < a_target.layers.size(); ++layerIndex) {
+					for (const auto& slot : previous->slots) {
+						if (slot.layerId == a_target.layers[layerIndex].layerId) {
+							priorByLayer[layerIndex] = &slot;
+							break;
+						}
 					}
 				}
-				return nullptr;
-			};
+			}
 
-			// Newest layers claim capacity first. This is what makes a full
-			// region keep the newest logical layers instead of letting the
-			// oldest cached assignment pin every slot forever.
-			for (std::size_t layerIndex = a_target.layers.size(); layerIndex-- > 0; ) {
-				const auto& layer = a_target.layers[layerIndex];
-
-				// Prefer the slot this layer used before, provided it is still
-				// in range, unused, and still ours.
-				if (previous) {
-					for (const auto& slot : previous->slots) {
-						if (slot.layerId != layer.layerId) {
-							continue;
-						}
-						const auto slotIndex = static_cast<std::size_t>(slot.slot);
-						if (slotIndex >= availableSlots || usedSlot[slotIndex]) {
-							continue;
-						}
-						const auto node = nodeNameForSlot(format, slot.slot);
-						if (!priorSlotStillOurs(reference, female, node, slot, a_target.region)) {
-							continue;
-						}
-						assignments.push_back(Assignment{ &layer, slot.slot, &slot });
-						usedSlot[slotIndex] = true;
-						assignedLayer[layerIndex] = true;
+			// A fully applied, unchanged target can be validated through its prior
+			// slots alone. Partial targets still rescan the pool so released slots
+			// remain retryable at the same revision.
+			if (previous && cached->second.revision == a_target.revision &&
+				previous->slots.size() == a_target.layers.size()) {
+				std::vector<Assignment> stable;
+				stable.reserve(a_target.layers.size());
+				std::vector<std::uint8_t> seen(availableSlots, 0);
+				bool allStable = true;
+				for (std::size_t layerIndex = a_target.layers.size(); layerIndex-- > 0;) {
+					const auto* prior = priorByLayer[layerIndex];
+					if (!prior || prior->slot >= availableSlots || reservedByOther[prior->slot] || seen[prior->slot]) {
+						allStable = false;
 						break;
 					}
-				}
-				if (assignedLayer[layerIndex]) {
-					continue;
-				}
-
-				for (std::size_t slotIndex = 0; slotIndex < availableSlots; ++slotIndex) {
-					if (usedSlot[slotIndex]) {
-						continue;
+					auto& snapshot = ensureDiffuse(prior->slot);
+					if (!matchesAppliedMaterial(prior->slot, *prior)) {
+						materialDrift = priorSlotStillOurs(snapshot, *prior, a_target.region);
+						allStable = false;
+						break;
 					}
-					const auto slot = static_cast<std::uint8_t>(slotIndex);
-					const auto node = nodeNameForSlot(format, slot);
-					const auto* prior = priorForSlot(slot);
-					const bool usable =
-						(prior && priorSlotStillOurs(reference, female, node, *prior, a_target.region)) ||
-						slotAppearsFree(reference, female, node, a_target.region);
-					if (!usable) {
-						continue;
-					}
-
-					assignments.push_back(Assignment{ &layer, slot, prior });
-					usedSlot[slotIndex] = true;
-					assignedLayer[layerIndex] = true;
-					break;
+					seen[prior->slot] = 1;
+					stable.push_back(Assignment{ &a_target.layers[layerIndex], prior->slot, prior });
 				}
-				if (!assignedLayer[layerIndex]) {
-					partial = true;
+				if (allStable && makeSignature(a_target, stable, format, std::clamp(a_settings.overlayOpacity, 0.0F, 1.0F)) == cached->second.signature) {
+					return failure(a_target.actor, a_target.region, a_target.revision, OverlayStatus::NoChange, OverlayErrorCode::None);
 				}
 			}
 
+			std::vector<std::uint8_t> usableBySlot(availableSlots, 0);
+			std::vector<std::uint8_t> usableSlots;
+			usableSlots.reserve(availableSlots);
+			for (std::size_t slotIndex = 0; slotIndex < availableSlots; ++slotIndex) {
+				if (reservedByOther[slotIndex]) continue;
+				const auto* prior = priorBySlot[slotIndex];
+				bool usable = false;
+				if (prior) {
+					auto& snapshot = ensureDiffuse(slotIndex);
+					if (profile.hasNormal) (void)ensureNormal(slotIndex);
+					if (profile.hasSpecular) (void)ensureSpecular(slotIndex);
+					usable = priorSlotStillOurs(snapshot, *prior, a_target.region);
+					if (usable && !matchesAppliedMaterial(slotIndex, *prior)) materialDrift = true;
+				}
+				if (!usable) usable = appearsFree(slotIndex);
+				if (usable) {
+					usableBySlot[slotIndex] = 1;
+					usableSlots.push_back(static_cast<std::uint8_t>(slotIndex));
+				}
+			}
+
+			const auto assignmentCount = std::min(a_target.layers.size(), usableSlots.size());
+			const auto firstLayer = a_target.layers.size() - assignmentCount;
+			partial = assignmentCount < a_target.layers.size();
+			std::vector<std::int16_t> slotForLayer(a_target.layers.size(), -1);
+			std::vector<const AppliedSlot*> priorForLayer(a_target.layers.size(), nullptr);
+			std::vector<std::uint8_t> usedSlot(availableSlots, 0);
+			for (std::size_t layerIndex = a_target.layers.size(); layerIndex-- > firstLayer;) {
+				const auto* prior = priorByLayer[layerIndex];
+				if (!prior || prior->slot >= availableSlots || !usableBySlot[prior->slot] || usedSlot[prior->slot]) continue;
+				slotForLayer[layerIndex] = prior->slot;
+				priorForLayer[layerIndex] = prior;
+				usedSlot[prior->slot] = 1;
+			}
+			for (std::size_t layerIndex = a_target.layers.size(); layerIndex-- > firstLayer;) {
+				if (slotForLayer[layerIndex] >= 0) continue;
+				for (const auto slot : usableSlots) {
+					if (usedSlot[slot]) continue;
+					slotForLayer[layerIndex] = slot;
+					priorForLayer[layerIndex] = priorBySlot[slot];
+					usedSlot[slot] = 1;
+					break;
+				}
+			}
+			for (std::size_t layerIndex = a_target.layers.size(); layerIndex-- > firstLayer;) {
+				if (slotForLayer[layerIndex] >= 0) {
+					assignments.push_back(Assignment{ &a_target.layers[layerIndex], static_cast<std::uint8_t>(slotForLayer[layerIndex]), priorForLayer[layerIndex] });
+				}
+			}
 		}
 
 		const float opacity = std::clamp(a_settings.overlayOpacity, 0.0F, 1.0F);
 		const auto signature = makeSignature(a_target, assignments, format, opacity);
 		if (cached != applied_.end() && cached->second.revision == a_target.revision && cached->second.signature == signature) {
-			if (!partial) {
+			if (!partial && !materialDrift) {
 				return failure(a_target.actor, a_target.region, a_target.revision, OverlayStatus::NoChange, OverlayErrorCode::None);
 			}
-			OverlayResult result;
-			result.status = OverlayStatus::NoOwnedCapacity;
-			result.actor = a_target.actor;
-			result.region = a_target.region;
-			result.revision = a_target.revision;
-			result.slotsApplied = static_cast<std::uint32_t>(assignments.size());
-			result.error = OverlayErrorCode::NoOwnedSlot;
-			return result;
+			if (partial && !materialDrift) {
+				OverlayResult result;
+				result.status = OverlayStatus::NoOwnedCapacity;
+				result.actor = a_target.actor;
+				result.region = a_target.region;
+				result.revision = a_target.revision;
+				result.slotsApplied = static_cast<std::uint32_t>(assignments.size());
+				result.error = OverlayErrorCode::NoOwnedSlot;
+				return result;
+			}
 		}
 
 		const auto initialized = initializedActors_.find(a_target.actor);
@@ -478,8 +588,8 @@ namespace slacs
 					assignments.end(),
 					[&](const Assignment& assignment) { return assignment.slot == slot.slot && assignment.prior; });
 				if (!reused) {
-					const auto node = nodeNameForSlot(format, slot.slot);
-					removeSlot(reference, female, node, slot, a_target.region);
+						const auto node = slot.slot < nodeNames.size() ? nodeNames[slot.slot] : nodeNameForSlot(format, slot.slot);
+						removeSlot(reference, female, node, slot, a_target.region);
 					changed = true;
 				}
 			}
@@ -490,7 +600,7 @@ namespace slacs
 		// this plugin's texture but which the new logical state does not use.
 		for (std::size_t slotIndex = 0; slotIndex < availableSlots; ++slotIndex) {
 			const auto slot = static_cast<std::uint8_t>(slotIndex);
-			if (isReservedByOtherRegion(slot)) {
+				if (reservedByOther[slotIndex] != 0) {
 				continue;
 			}
 			const bool assigned = std::any_of(
@@ -500,7 +610,15 @@ namespace slacs
 			if (assigned) {
 				continue;
 			}
-			if (resetSlotIfOurs(reference, female, nodeNameForSlot(format, slot), a_target.region)) {
+				auto& snapshot = snapshots[slotIndex];
+				if (!snapshot.diffuseRead) {
+					snapshot.hasDiffuse = readDiffuse(reference, female, nodeNames[slotIndex], snapshot.diffuse);
+					snapshot.diffuseRead = true;
+				}
+				if (snapshot.hasDiffuse && isOurTexture(snapshot.diffuse)) {
+					AppliedSlot cleared{};
+					cleared.diffuse = snapshot.diffuse;
+					removeSlot(reference, female, nodeNames[slotIndex], cleared, a_target.region);
 				changed = true;
 			}
 		}
@@ -511,10 +629,10 @@ namespace slacs
 		updated.slots.reserve(assignments.size());
 
 		for (const auto& assignment : assignments) {
-			const auto node = nodeNameForSlot(format, assignment.slot);
+			const auto& node = nodeNames[assignment.slot];
 			AppliedSlot slot;
 			bool slotChanged = false;
-			if (!applySlot(reference, female, node, *assignment.layer, slot, slotChanged, a_settings, a_target.region)) {
+			if (!applySlot(reference, female, node, snapshots[assignment.slot], *assignment.layer, slot, slotChanged, a_settings, a_target.region)) {
 				return failure(a_target.actor, a_target.region, a_target.revision, OverlayStatus::Failed, OverlayErrorCode::ApiFailure);
 			}
 			slot.slot = assignment.slot;
@@ -714,69 +832,24 @@ namespace slacs
 		return readTexture(a_reference, a_female, a_node, kTextureDiffuseIndex, a_value);
 	}
 
-	bool OverlayAdapter::priorSlotStillOurs(
-		RE::TESObjectREFR* a_reference,
-		bool a_female,
-		const std::string& a_node,
-		const AppliedSlot& a_prior,
-		Region a_region) const
+	bool OverlayAdapter::priorSlotStillOurs(const SlotSnapshot& a_snapshot, const AppliedSlot& a_prior, Region a_region) const
 	{
 		const auto& profile = ProfileFor(a_region);
-		std::string diffuse;
-		if (readDiffuse(a_reference, a_female, a_node, diffuse) && !diffuse.empty() &&
-			!equalsIgnoreCase(diffuse, a_prior.diffuse)) {
+		if (a_snapshot.hasDiffuse && !a_snapshot.diffuse.empty() &&
+			!equalsIgnoreCase(a_snapshot.diffuse, a_prior.diffuse)) {
 			return false;
 		}
 		if (profile.hasNormal) {
-			std::string normal;
-			const bool hasNormal = readTexture(a_reference, a_female, a_node, kTextureNormalIndex, normal);
-			const bool normalPresent = hasNormal && !normal.empty();
-			if (a_prior.normal.empty() ? normalPresent : (normalPresent && !equalsIgnoreCase(normal, a_prior.normal))) {
+			const bool normalPresent = a_snapshot.hasNormal && !a_snapshot.normal.empty();
+			if (a_prior.normal.empty() ? normalPresent : (normalPresent && !equalsIgnoreCase(a_snapshot.normal, a_prior.normal))) {
 				return false;
 			}
 		}
 		if (profile.hasSpecular) {
-			std::string specular;
-			const bool hasSpecular = readTexture(a_reference, a_female, a_node, kTextureSpecularIndex, specular);
-			const bool specularPresent = hasSpecular && !specular.empty();
-			if (a_prior.specular.empty() ? specularPresent : (specularPresent && !equalsIgnoreCase(specular, a_prior.specular))) {
+			const bool specularPresent = a_snapshot.hasSpecular && !a_snapshot.specular.empty();
+			if (a_prior.specular.empty() ? specularPresent : (specularPresent && !equalsIgnoreCase(a_snapshot.specular, a_prior.specular))) {
 				return false;
 			}
-		}
-		return true;
-	}
-
-	bool OverlayAdapter::slotAppearsFree(RE::TESObjectREFR* a_reference, bool a_female, const std::string& a_node, Region a_region) const
-	{
-		auto* overrideApi = static_cast<::IOverrideInterface*>(api_.overrideApi());
-		const auto& profile = ProfileFor(a_region);
-
-		std::string diffuse;
-		const bool hasDiffuse = readDiffuse(a_reference, a_female, a_node, diffuse);
-		if (hasDiffuse && !diffuse.empty()) {
-			// After a load applied_ is empty but RaceMenu's co-save still
-			// carries our old node overrides. Our own texture is reclaimable.
-			if (isOurTexture(diffuse)) {
-				return true;
-			}
-			if (!isDefaultTexture(diffuse)) {
-				return false;
-			}
-		}
-
-		// Key 6 is non-indexed; RaceMenu normalizes its index to 0xFF.
-		if (overrideApi->HasNodeOverride(a_reference, a_female, a_node.c_str(), 6, 0xFF)) {
-			return false;
-		}
-		std::string normal;
-		if (profile.hasNormal &&
-			readTexture(a_reference, a_female, a_node, kTextureNormalIndex, normal) && !normal.empty()) {
-			return false;
-		}
-		std::string specular;
-		if (profile.hasSpecular &&
-			readTexture(a_reference, a_female, a_node, kTextureSpecularIndex, specular) && !specular.empty()) {
-			return false;
 		}
 		return true;
 	}
@@ -785,6 +858,7 @@ namespace slacs
 		RE::TESObjectREFR* a_reference,
 		bool a_female,
 		const std::string& a_node,
+		SlotSnapshot& a_snapshot,
 		const LayerVisual& a_layer,
 		AppliedSlot& a_slot,
 		bool& a_changed,
@@ -818,58 +892,76 @@ namespace slacs
 			a_slot.specular.clear();
 		}
 
-		// Compare against the live node, not only the cached values: a 3D
-		// rebuild or another mod may have removed a key while leaving the
-		// diffuse intact. This also rewrites optional maps after a load where
-		// no applied_ cache exists.
-		std::string liveDiffuse;
-		std::string liveNormal;
-		std::string liveSpecular;
-		const bool hasDiffuse = readDiffuse(a_reference, a_female, a_node, liveDiffuse);
-		const bool hasNormal = profile.hasNormal &&
-			readTexture(a_reference, a_female, a_node, kTextureNormalIndex, liveNormal);
-		const bool hasSpecular = profile.hasSpecular &&
-			readTexture(a_reference, a_female, a_node, kTextureSpecularIndex, liveSpecular);
-		const bool diffuseChanged = !hasDiffuse || liveDiffuse.empty() ||
-			!equalsIgnoreCase(liveDiffuse, a_slot.diffuse);
+		// Reuse the slot observation gathered during allocation. If an owned slot
+		// was found through its diffuse alone, read the remaining maps here once.
+		if (!a_snapshot.diffuseRead) {
+			a_snapshot.hasDiffuse = readDiffuse(a_reference, a_female, a_node, a_snapshot.diffuse);
+			a_snapshot.diffuseRead = true;
+		}
+		if (profile.hasNormal && !a_snapshot.normalRead) {
+			a_snapshot.hasNormal = readTexture(a_reference, a_female, a_node, kTextureNormalIndex, a_snapshot.normal);
+			a_snapshot.normalRead = true;
+		}
+		if (profile.hasSpecular && !a_snapshot.specularRead) {
+			a_snapshot.hasSpecular = readTexture(a_reference, a_female, a_node, kTextureSpecularIndex, a_snapshot.specular);
+			a_snapshot.specularRead = true;
+		}
+		const bool diffuseChanged = !a_snapshot.hasDiffuse || a_snapshot.diffuse.empty() ||
+			!equalsIgnoreCase(a_snapshot.diffuse, a_slot.diffuse);
 		const bool normalChanged = profile.hasNormal &&
 			(a_slot.normal.empty() ?
-				(hasNormal && !liveNormal.empty()) :
-				(!hasNormal || liveNormal.empty() || !equalsIgnoreCase(liveNormal, a_slot.normal)));
+				(a_snapshot.hasNormal && !a_snapshot.normal.empty()) :
+				(!a_snapshot.hasNormal || a_snapshot.normal.empty() || !equalsIgnoreCase(a_snapshot.normal, a_slot.normal)));
 		const bool specularChanged = profile.hasSpecular &&
 			(a_slot.specular.empty() ?
-				(hasSpecular && !liveSpecular.empty()) :
-				(!hasSpecular || liveSpecular.empty() || !equalsIgnoreCase(liveSpecular, a_slot.specular)));
+				(a_snapshot.hasSpecular && !a_snapshot.specular.empty()) :
+				(!a_snapshot.hasSpecular || a_snapshot.specular.empty() || !equalsIgnoreCase(a_snapshot.specular, a_slot.specular)));
 		const bool textureChanged = diffuseChanged || normalChanged || specularChanged;
 
 		if (textureChanged) {
 			StringVariant diffuse(a_slot.diffuse);
 			overrideApi->AddNodeOverride(a_reference, a_female, node, kShaderTextureKey, kTextureDiffuseIndex, diffuse);
+			a_snapshot.diffuse = a_slot.diffuse;
+			a_snapshot.hasDiffuse = true;
 
 			if (profile.hasNormal && !a_slot.normal.empty()) {
 				StringVariant normal(a_slot.normal);
 				overrideApi->AddNodeOverride(a_reference, a_female, node, kShaderTextureKey, kTextureNormalIndex, normal);
+				a_snapshot.normal = a_slot.normal;
+				a_snapshot.hasNormal = true;
 			} else if (profile.hasNormal) {
 				// Clear a map left over from another variant, including after a
 				// load where no applied_ cache exists.
 				clearTexture(a_reference, a_female, a_node, kTextureNormalIndex);
+				a_snapshot.normal.clear();
+				a_snapshot.hasNormal = true;
 			}
 
 			if (profile.hasSpecular && !a_slot.specular.empty()) {
 				StringVariant specular(a_slot.specular);
 				overrideApi->AddNodeOverride(a_reference, a_female, node, kShaderTextureKey, kTextureSpecularIndex, specular);
+				a_snapshot.specular = a_slot.specular;
+				a_snapshot.hasSpecular = true;
 			} else if (profile.hasSpecular) {
 				clearTexture(a_reference, a_female, a_node, kTextureSpecularIndex);
+				a_snapshot.specular.clear();
+				a_snapshot.hasSpecular = true;
 			}
 		}
 
 		const float opacity = std::clamp(a_settings.overlayOpacity, 0.0F, 1.0F);
-		FloatReader liveAlpha;
-		const bool hasAlpha = overrideApi->GetNodeOverride(a_reference, a_female, node, kShaderAlphaKey, kAlphaIndex, liveAlpha);
-		const bool alphaChanged = !hasAlpha || !liveAlpha.present || liveAlpha.value != opacity;
+		if (!a_snapshot.alphaRead) {
+			FloatReader liveAlpha;
+			a_snapshot.hasAlpha = overrideApi->GetNodeOverride(a_reference, a_female, node, kShaderAlphaKey, kAlphaIndex, liveAlpha) && liveAlpha.present;
+			a_snapshot.alpha = liveAlpha.value;
+			a_snapshot.alphaRead = true;
+		}
+		const bool alphaChanged = !a_snapshot.hasAlpha || a_snapshot.alpha != opacity;
 		if (alphaChanged) {
 			FloatVariant alpha(opacity);
 			overrideApi->AddNodeOverride(a_reference, a_female, node, kShaderAlphaKey, kAlphaIndex, alpha);
+			a_snapshot.alpha = opacity;
+			a_snapshot.hasAlpha = true;
 		}
 		a_slot.hasAlpha = true;
 		a_slot.alpha = opacity;

@@ -1,6 +1,6 @@
 #include "runtime/Runtime.h"
 
-#include "integration/Followers.h"
+#include "integration/ActorCandidates.h"
 #include "menu/Menu.h"
 #include "menu/MenuText.h"
 
@@ -377,6 +377,10 @@ namespace slacs
 		menuFeedback_ = {};
 		menuDiagnostics_.clear();
 		displayNames_.clear();
+		actorCandidates_.clear();
+		selectedCandidate_ = 0;
+		selectionRevision_ = 0;
+		actorFeedback_.clear();
 		perfPumpCount_ = 0;
 		perfPumpMicrosTotal_ = 0;
 		perfPumpMicrosMax_ = 0;
@@ -408,6 +412,7 @@ namespace slacs
 			}
 		}
 		coreState_.actors.erase(*actorId);
+		std::erase_if(actorCandidates_, [actorId](const auto& a_row) { return a_row.actor == *actorId; });
 		overlay_.clearActor(*actorId);
 		effects_.invalidate(*actorId);
 		environment_.invalidate(*actorId);
@@ -1668,7 +1673,11 @@ namespace slacs
 					return;
 				}
 				const auto now = currentGameTime();
-				if constexpr (std::is_same_v<T, ApplySettings>) {
+				if constexpr (std::is_same_v<T, RefreshActorCandidates>) {
+					refreshActorCandidates(false);
+				} else if constexpr (std::is_same_v<T, SelectCrosshairActor>) {
+					refreshActorCandidates(true);
+				} else if constexpr (std::is_same_v<T, ApplySettings>) {
 					auto validation = Settings::validate(action.settings);
 					if (!validation.valid) {
 						menuFeedback_.apply = SettingsApplyStatus::Rejected;
@@ -1851,6 +1860,52 @@ namespace slacs
 		a_report.diagnostics.push_back(diagnostic);
 	}
 
+	void Runtime::refreshActorCandidates(bool a_crosshairOnly)
+	{
+		auto candidates = a_crosshairOnly ? std::vector<ActorCandidate>{} : GetLoadedActorCandidates();
+		if (a_crosshairOnly) {
+			const auto target = GetCrosshairActorCandidate();
+			if (!target) {
+				actorFeedback_ = "准星未指向已加载的成年 NPC。";
+				return;
+			}
+			candidates.push_back(*target);
+		} else {
+			actorCandidates_.clear();
+		}
+		for (const auto& candidate : candidates) {
+			const auto actor = candidate.actor.get();
+			if (!actor) {
+				continue;
+			}
+			const auto id = actorRegistry_.bind(actor->GetFormID());
+			if (!id) {
+				continue;
+			}
+			TrackedActorRow row{};
+			row.actor = *id;
+			row.formId = actor->GetFormID();
+			row.displayName = actorDisplayName(row.formId);
+			row.has3D = actor->Is3DLoaded();
+			row.tracked = false;
+			row.isFemale = candidate.isFemale;
+			row.isPlayer = candidate.isPlayer;
+			actorCandidates_.push_back(std::move(row));
+			if (a_crosshairOnly) {
+				selectedCandidate_ = *id;
+				++selectionRevision_;
+			}
+		}
+		std::sort(actorCandidates_.begin(), actorCandidates_.end(), [](const auto& a_left, const auto& a_right) {
+			return a_left.actor < a_right.actor;
+		});
+		actorCandidates_.erase(std::unique(actorCandidates_.begin(), actorCandidates_.end(), [](const auto& a_left, const auto& a_right) {
+			return a_left.actor == a_right.actor;
+		}), actorCandidates_.end());
+		actorFeedback_ = a_crosshairOnly ? "已选中准星角色。" :
+			"已刷新已加载 NPC：" + std::to_string(actorCandidates_.size()) + " 个候选。";
+	}
+
 	void Runtime::publishMenuSnapshot()
 	{
 		MenuSnapshot snapshot{};
@@ -1860,7 +1915,10 @@ namespace slacs
 		snapshot.overlayCapacities = overlay_.capacities();
 		snapshot.settings = settings_;
 		snapshot.settingsFeedback = menuFeedback_;
-		snapshot.actors.reserve(coreState_.actors.size());
+		snapshot.selectedCandidate = selectedCandidate_;
+		snapshot.selectionRevision = selectionRevision_;
+		snapshot.actorFeedback = actorFeedback_;
+		snapshot.actors.reserve(coreState_.actors.size() + actorCandidates_.size() + 1);
 		for (const auto& [actorId, state] : coreState_.actors) {
 			TrackedActorRow row{};
 			row.actor = actorId;
@@ -1883,27 +1941,27 @@ namespace slacs
 			snapshot.actors.push_back(std::move(row));
 		}
 		if (snapshot.sessionReady) {
-			const auto appendAvailableActor = [&](RE::Actor* a_actor) {
-				if (!a_actor) {
-					return;
+			for (const auto& row : actorCandidates_) {
+				if (!coreState_.actors.contains(row.actor)) {
+					snapshot.actors.push_back(row);
 				}
-				const auto actor = actorRegistry_.bind(a_actor->GetFormID());
-				if (actor && std::none_of(snapshot.actors.begin(), snapshot.actors.end(), [&](const auto& a_row) {
-					return a_row.actor == *actor;
-				})) {
+			}
+			if (const auto player = RE::PlayerCharacter::GetSingleton()) {
+				const auto id = actorRegistry_.bind(player->GetFormID());
+				const bool cached = id && std::binary_search(actorCandidates_.begin(), actorCandidates_.end(),
+					TrackedActorRow{ .actor = *id }, [](const auto& a_left, const auto& a_right) {
+						return a_left.actor < a_right.actor;
+					});
+				if (id && !cached && !coreState_.actors.contains(*id)) {
 					TrackedActorRow row{};
-					row.actor = *actor;
-					row.formId = a_actor->GetFormID();
-					row.tracked = false;
+					row.actor = *id;
+					row.formId = player->GetFormID();
 					row.displayName = actorDisplayName(row.formId);
-					row.has3D = a_actor->Is3DLoaded();
+					row.has3D = player->Is3DLoaded();
+					row.tracked = false;
+					row.isPlayer = true;
 					snapshot.actors.push_back(std::move(row));
 				}
-			};
-			appendAvailableActor(RE::PlayerCharacter::GetSingleton());
-			for (const auto& handle : GetFollowers()) {
-				const auto actor = handle.get();
-				appendAvailableActor(actor.get());
 			}
 		}
 		snapshot.diagnostics.reserve(menuDiagnostics_.size());

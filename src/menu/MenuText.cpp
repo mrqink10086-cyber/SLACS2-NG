@@ -65,9 +65,6 @@ namespace slacs
 			if (a_key == "allowFemaleFluid") {
 				return "女性来源体液";
 			}
-			if (a_key == "femaleTargetsRequirePlayerOrFollower") {
-				return "女性目标限制";
-			}
 			if (a_key == "enabledSourceClasses") {
 				return "来源类别开关";
 			}

@@ -114,6 +114,7 @@ namespace slacs
 		void handleLoadFailure();
 		void addStale(PumpReport& a_report, RuntimeModule a_module, SessionEpoch a_epoch);
 		void publishMenuSnapshot();
+		void refreshActorCandidates(bool a_crosshairOnly);
 		void appendMenuDiagnostics(const PumpReport& a_report);
 		void recordPumpTiming(SteadyTime a_started, const PumpReport& a_report);
 		void recordRequestLatency(RequestId a_requestId);
@@ -173,6 +174,10 @@ namespace slacs
 		std::deque<RuntimeDiagnostic> menuDiagnostics_;
 		std::unordered_map<FormId, std::string> displayNames_;
 		std::uint64_t menuRevision_{};
+		std::vector<TrackedActorRow> actorCandidates_;
+		ActorId selectedCandidate_{};
+		Revision selectionRevision_{};
+		std::string actorFeedback_;
 
 		std::uint64_t perfPumpCount_{};
 		std::uint64_t perfPumpMicrosTotal_{};

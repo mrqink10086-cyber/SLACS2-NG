@@ -34,4 +34,4 @@ DD 事件也采用这条桥接方式：`OnDDOrgasm(Form, Form, int)` 在 PSC 中
 - 此例提供了可照着核查的“Quest 脚本订阅 → Event 接收 → native 调用”源码路径，并展示新档/读档后的重新订阅。SLACS2 NG 复用原 Main Quest `SLACS_Main_Q` 与原挂载脚本类名 `SLACS_Main`，不照搬 Devious Curses 的独立 MCM Quest。
 - 此例没有监听 `SexlabOrgasmSeparate`；若用于 SLACS2 NG，仍应订阅此前选定的唯一业务事件，并接收其 `Form sourceActor, int tid`，不能用开始/结束事件代替高潮事件。
 - SLACS2 NG 已选用这一接收形式：`SLACS_Main extends Quest` 改为薄 Event 桥，转发参数到 native 队列；typed HookAnimationStart/End 也由该脚本接收，仅管理生命周期。三个 Global Native 声明与 Event 放在同一个 `SLACS_Main.psc`，DLL 注册类名 `SLACS_Main`，因此只需交付重编译的 `SLACS_Main.pex`。
-- 菜单使用中文 SKSE Menu Framework；业务状态、参与者/交互查询、衰减、资源管理继续放在 C++。桥不按 `hasPlayer` 筛选，让 C++ 同时覆盖玩家和当前随从相关过程。组件与打包要求见 [主计划](../PLAN.zh-CN.md)。
+- 菜单使用中文 SKSE Menu Framework；业务状态、参与者/交互查询、衰减、资源管理继续放在 C++。桥不按 `hasPlayer` 筛选，由 C++ 处理符合性别和目标规则的过程，也包括没有玩家或随从参与的过程。组件与打包要求见 [主计划](../PLAN.zh-CN.md)。

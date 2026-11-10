@@ -89,7 +89,6 @@ namespace slacs
 		std::uint8_t spellLevel1Threshold{ 1 };
 		std::uint8_t spellLevel2Threshold{ 3 };
 		bool allowFemaleFluid{ true };
-		bool femaleTargetsRequirePlayerOrFollower{ true };
 		std::array<bool, 6> enabledSourceClasses{ true, true, true, true, false, false };
 		bool megaCumForAll{ false };
 

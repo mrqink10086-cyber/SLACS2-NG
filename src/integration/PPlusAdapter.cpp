@@ -1,6 +1,6 @@
 #include "integration/PPlusAdapter.h"
-#include "integration/Followers.h"
 #include "integration/PPlusMapping.h"
+#include "integration/ActorCandidates.h"
 
 #include <RE/Skyrim.h>
 
@@ -95,6 +95,7 @@ namespace slacs
 				nullptr;
 			return list && list->HasForm(a_source->GetRace());
 		}
+
 	}
 
 	struct PPlusAdapter::RequestState
@@ -680,21 +681,6 @@ namespace slacs
 			return;
 		}
 
-		bool sceneHasPlayerOrTeammate = false;
-		for (const auto formId : state.positions) {
-			if (auto* actor = LookupActor(formId)) {
-				if (actor == RE::PlayerCharacter::GetSingleton() || IsFollower(actor)) {
-					sceneHasPlayerOrTeammate = true;
-					break;
-				}
-			}
-		}
-		if (!sceneHasPlayerOrTeammate) {
-			state.resolved = ResolvedOrgasm{ state.source, state.tid, state.sequence, state.epoch, {} };
-			state.terminal.store(true, std::memory_order_release);
-			return;
-		}
-
 		const bool mega = IsMegaRace(settings, source);
 		const auto variant = mega ? TextureVariant::Mega : TextureVariant::Normal;
 		const bool maleSource = sourceClass == 0 || sourceClass == 2 || sourceClass == 3;
@@ -709,15 +695,7 @@ namespace slacs
 			}
 			const auto targetSex = state.sexes.empty() ? -1 : state.sexes[positionIndex];
 			const bool femaleTarget = targetSex == 1 || targetSex == 2 || targetSex == 4;
-			const bool maleTarget = targetSex == 0 || targetSex == 3;
-			if (!femaleTarget && !maleTarget) {
-				continue;
-			}
-			if (!maleSource && !femaleTarget) {
-				continue;
-			}
-			if (femaleTarget && settings.femaleTargetsRequirePlayerOrFollower &&
-				targetActor != RE::PlayerCharacter::GetSingleton() && !IsFollower(targetActor)) {
+			if (!ShouldIncludePPlusTarget(maleSource, targetSex, !femaleTarget || IsAdultNpc(targetActor))) {
 				continue;
 			}
 

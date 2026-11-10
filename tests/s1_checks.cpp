@@ -41,6 +41,20 @@ namespace
 		Check(loaded.status == slacs::SettingsLoadStatus::Loaded, "saved settings should load");
 		Check(loaded.value.maxLayersPerRegion == 5, "layer cap round-trips");
 		Check(loaded.value.enabledSourceClasses == slacs::Settings{}.enabledSourceClasses, "class array round-trips");
+		{
+			std::ifstream file(path, std::ios::binary);
+			const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+			Check(text.find("femaleTargetsRequirePlayerOrFollower") == std::string::npos,
+				"saving removes the obsolete female target restriction");
+		}
+
+		{
+			std::ofstream file(path, std::ios::binary | std::ios::trunc);
+			file << R"({"schemaVersion":1,"femaleTargetsRequirePlayerOrFollower":true})";
+		}
+		auto legacyTargetRestriction = slacs::Settings::load(path);
+		Check(legacyTargetRestriction.status == slacs::SettingsLoadStatus::Loaded,
+			"legacy female target restriction is accepted and ignored");
 
 		{
 			std::ofstream file(path, std::ios::binary | std::ios::trunc);

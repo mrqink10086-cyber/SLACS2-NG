@@ -40,6 +40,8 @@ namespace slacs
 		bool has3D{};
 		bool visualDegraded{};
 		bool tracked{ true };
+		bool isFemale{};
+		bool isPlayer{};
 	};
 
 	struct DiagnosticRow
@@ -57,6 +59,9 @@ namespace slacs
 		Settings settings;
 		SettingsFeedback settingsFeedback;
 		std::vector<TrackedActorRow> actors;
+		ActorId selectedCandidate{};
+		Revision selectionRevision{};
+		std::string actorFeedback;
 		std::vector<DiagnosticRow> diagnostics;
 	};
 }

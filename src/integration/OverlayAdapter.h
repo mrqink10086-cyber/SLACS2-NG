@@ -116,6 +116,24 @@ namespace slacs
 			std::vector<AppliedSlot> slots;
 		};
 
+		struct SlotSnapshot
+		{
+			bool diffuseRead{};
+			bool hasDiffuse{};
+			std::string diffuse;
+			bool normalRead{};
+			bool hasNormal{};
+			std::string normal;
+			bool specularRead{};
+			bool hasSpecular{};
+			std::string specular;
+			bool materialRead{};
+			bool hasMaterial{};
+			bool alphaRead{};
+			bool hasAlpha{};
+			float alpha{};
+		};
+
 		struct Assignment
 		{
 			const LayerVisual* layer{};
@@ -130,12 +148,12 @@ namespace slacs
 		void clearTexture(RE::TESObjectREFR* a_reference, bool a_female, const std::string& a_node, std::uint8_t a_index);
 		bool readTexture(RE::TESObjectREFR* a_reference, bool a_female, const std::string& a_node, std::uint8_t a_index, std::string& a_value) const;
 		bool readDiffuse(RE::TESObjectREFR* a_reference, bool a_female, const std::string& a_node, std::string& a_value) const;
-		bool slotAppearsFree(RE::TESObjectREFR* a_reference, bool a_female, const std::string& a_node, Region a_region) const;
-		bool priorSlotStillOurs(RE::TESObjectREFR* a_reference, bool a_female, const std::string& a_node, const AppliedSlot& a_prior, Region a_region) const;
+		bool priorSlotStillOurs(const SlotSnapshot& a_snapshot, const AppliedSlot& a_prior, Region a_region) const;
 		bool applySlot(
 			RE::TESObjectREFR* a_reference,
 			bool a_female,
 			const std::string& a_node,
+			SlotSnapshot& a_snapshot,
 			const LayerVisual& a_layer,
 			AppliedSlot& a_slot,
 			bool& a_changed,

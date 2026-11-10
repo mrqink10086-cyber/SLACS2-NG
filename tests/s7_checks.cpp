@@ -125,6 +125,33 @@ namespace
 			"mega variant stored", __LINE__);
 	}
 
+	void CheckDistinctStackTextures()
+	{
+		using namespace slacs;
+		for (const auto region : kRegions) {
+			CoreState state{};
+			std::vector<LayerVisual> previous;
+			for (int count = 1; count <= 5; ++count) {
+				const auto change = Add(state, 200, { region }, Settings{});
+				const auto& target = change.regions.front();
+				Expect(target.layers.size() == static_cast<std::size_t>(count), "each add retains an independent visual layer", __LINE__);
+				for (std::size_t i = 0; i < previous.size(); ++i) {
+					Expect(target.layers[i].layerId == previous[i].layerId && target.layers[i].textureIndex == previous[i].textureIndex,
+						"appending a layer preserves prior texture choices", __LINE__);
+				}
+				previous = target.layers;
+			}
+			std::vector<std::uint16_t> textures;
+			for (const auto& layer : previous) {
+				textures.push_back(layer.textureIndex);
+			}
+			std::sort(textures.begin(), textures.end());
+			const auto distinct = std::unique(textures.begin(), textures.end()) - textures.begin();
+			const bool smallPool = region == Region::BodyLegs || region == Region::Hands || region == Region::Feet;
+			Expect(distinct == (smallPool ? 4 : 5), "stack uses distinct textures until the asset pool is exhausted", __LINE__);
+		}
+	}
+
 	void CheckSwimmingClearsAll()
 	{
 		using namespace slacs;
@@ -350,6 +377,7 @@ namespace
 int main()
 {
 	CheckSevenRegionPools();
+	CheckDistinctStackTextures();
 	CheckSwimmingClearsAll();
 	CheckRainBudget();
 	CheckSpellCombinations();

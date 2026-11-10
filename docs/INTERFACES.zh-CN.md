@@ -124,7 +124,7 @@ using CoreOp = std::variant<AddLayers, ClearRegions, Advance, SettingsChanged>;
 | `PPlusCompleted` | `{ RequestId requestId; SessionEpoch epoch; std::variant<ResolvedOrgasm, PPlusFailure> outcome; }` | P+ 查询唯一终态值；Runtime 验证 request、epoch 和 tid 仍有效后处理。 |
 | `EnvironmentObserved` | `{ EnvironmentSample sample; }` | 在游戏执行阶段采样后入队/直接泵入；不含 Actor 指针。 |
 | `DeadlineElapsed` | `{ DeadlineId id; ActorId actor; DeadlineKind kind; SessionEpoch epoch; std::optional<Region> region; Revision ownerRevision; }` | 期限唤醒只是提示；Runtime/Core 再核对相应 actor/region revision，过期 owner revision 无副作用。 |
-| `MenuAction` | `std::variant<ApplySettings, ClearActor, RefreshActor, TestAdd, TestClear>` | 每个动作均携带创建时 `SessionEpoch`；actor 动作含 `ActorId`，Runtime 拒绝过期会话动作。详细字段见 S8。 |
+| `MenuAction` | `std::variant<ApplySettings, ClearActor, RefreshActor, TestAdd, TestClear, RefreshActorCandidates, SelectCrosshairActor>` | 每个动作均携带创建时 `SessionEpoch`；actor 动作含 `ActorId`，Runtime 拒绝过期会话动作。候选刷新与准星查询由 Runtime 在游戏线程执行，结果按值缓存到连续数组并发布菜单快照；常规 pump 不枚举场景角色。详细字段见 S8。 |
 | `ActorVisualInvalidated` | `{ ActorId actor; Revision revision; SessionEpoch epoch; }` | RaceMenu 安装或 3D 重建后请求重新 reconcile；epoch 随被观察的会话保存，不保存节点或材质。 |
 | `LoadNotice` | `{ enum Phase { Begin, Complete, Failed, NewGame, Revert } phase; SessionEpoch epoch; }` | 由 Runtime 生命周期处理，不传给 Core::apply。 |
 
@@ -194,7 +194,7 @@ Papyrus Event 不维护层、参与者列表、定时器或业务状态。Native
 
 PPlusAdapter 使用 CommonLib VM 查询 P+ 的 thread、参与者、性别和有向交互，输出一次 ResolvedOrgasm。多次 getter 是异步查询，结果代表这次请求取得的完整数据。
 
-场景必须包含玩家或当前 teammate；来源按 Settings 筛选，自身 orgasm 不给自身加层。Female/Futa/CreatureFemale 受方默认限玩家/当前 teammate。区域映射沿用[旧规则表](<E:/source/repos/SLACS2 NG/docs/research/legacy-behavior.md:53>)：Vaginal→BodyVaginal，Anal→BodyAnal，Oral→Face，Breast→BodyBreast，Handjob→Hands，Footjob→Feet 与 BodyLegs；女性来源的 Vaginal/Tribadism/Rubbing 走 BodyVaginal+BodyBreast，不加 Anal。先用 source/target 有向交互，缺少精确交互时才使用当前阶段的相应回退标签，不能把整场标签广播到全部受方。每个结果对同一 actor/region 最多申请一层。
+场景不要求玩家或随从参与，不查询随从身份；来源按 Settings 筛选，自身 orgasm 不给自身加层。Female/Futa/CreatureFemale 性别分类的受方还须通过成年、非生物 NPC 检查；Male/CreatureMale 沿用原有男性受方规则。区域映射沿用[旧规则表](<E:/source/repos/SLACS2 NG/docs/research/legacy-behavior.md:53>)：Vaginal→BodyVaginal，Anal→BodyAnal，Oral→Face，Breast→BodyBreast，Handjob→Hands，Footjob→Feet 与 BodyLegs；女性来源的 Vaginal/Tribadism/Rubbing 走 BodyVaginal+BodyBreast，不加 Anal。先用 source/target 有向交互，缺少精确交互时才使用当前阶段的相应回退标签，不能把整场标签广播到全部受方。每个结果对同一 actor/region 最多申请一层。
 
 ```cpp
 enum class QueryStart : std::uint8_t {
@@ -254,7 +254,6 @@ struct Settings {
     std::uint8_t spellLevel1Threshold{1};
     std::uint8_t spellLevel2Threshold{3};
     bool allowFemaleFluid{true};
-    bool femaleTargetsRequirePlayerOrFollower{true};
     std::array<bool, 6> enabledSourceClasses{true, true, true, true, false, false};
     bool megaCumForAll{false};
 };
