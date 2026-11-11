@@ -1,0 +1,298 @@
+{
+  "archive": "D:\\tuanzimouse\\mods\\RaceMenu Anniversary Edition\\RaceMenu.bsa",
+  "archiveSha256": "2e4a47aefa8a12dad1b3d3dfa58f3b39e9672b24e66e4d0a3c2b0b7ddcc6c6ab",
+  "templates": [
+    {
+      "archivePath": "meshes\\actors\\character\\character assets\\body_overlay.nif",
+      "sha256": "61320a998c873fad8b05c6d34676246a75e07468e3211794c9df11e41a35e068",
+      "bytes": 630,
+      "version": "20.2.0.7",
+      "userVersion": 12,
+      "bsVersion": 83,
+      "strings": [
+        "Scene Root",
+        "Body [Ovly]"
+      ],
+      "blocks": [
+        {
+          "index": 0,
+          "type": "NiNode",
+          "offset": 228,
+          "size": 84
+        },
+        {
+          "index": 1,
+          "type": "NiTriShape",
+          "offset": 312,
+          "size": 97,
+          "shaderProperty": 2,
+          "alphaProperty": 4
+        },
+        {
+          "index": 2,
+          "type": "BSLightingShaderProperty",
+          "offset": 409,
+          "size": 112,
+          "shaderType": 5,
+          "flags1": "0x82601303",
+          "flags2": "0x02008081",
+          "alpha": 1.0,
+          "zTest": true,
+          "zWrite": true,
+          "decal": false,
+          "facegenDetailMap": false
+        },
+        {
+          "index": 3,
+          "type": "BSShaderTextureSet",
+          "offset": 521,
+          "size": 86,
+          "textures": [
+            "Textures\\Actors\\Character\\Overlays\\default.dds",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ]
+        },
+        {
+          "index": 4,
+          "type": "NiAlphaProperty",
+          "offset": 607,
+          "size": 15,
+          "flags": 4845,
+          "threshold": 0,
+          "blend": true,
+          "sourceBlend": 6,
+          "destinationBlend": 7,
+          "alphaTest": true,
+          "testFunction": 4,
+          "noSorter": false
+        }
+      ]
+    },
+    {
+      "archivePath": "meshes\\actors\\character\\character assets\\face_overlay.nif",
+      "sha256": "10e77c8277a5537be516f59a225c64e21d01bb5d24d99d0149c2af921d5eaee4",
+      "bytes": 630,
+      "version": "20.2.0.7",
+      "userVersion": 12,
+      "bsVersion": 83,
+      "strings": [
+        "Scene Root",
+        "Body [Ovly]"
+      ],
+      "blocks": [
+        {
+          "index": 0,
+          "type": "NiNode",
+          "offset": 228,
+          "size": 84
+        },
+        {
+          "index": 1,
+          "type": "NiTriShape",
+          "offset": 312,
+          "size": 97,
+          "shaderProperty": 2,
+          "alphaProperty": 4
+        },
+        {
+          "index": 2,
+          "type": "BSLightingShaderProperty",
+          "offset": 409,
+          "size": 112,
+          "shaderType": 5,
+          "flags1": "0x82601703",
+          "flags2": "0x02008081",
+          "alpha": 1.0,
+          "zTest": true,
+          "zWrite": true,
+          "decal": false,
+          "facegenDetailMap": true
+        },
+        {
+          "index": 3,
+          "type": "BSShaderTextureSet",
+          "offset": 521,
+          "size": 86,
+          "textures": [
+            "Textures\\Actors\\Character\\Overlays\\default.dds",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ]
+        },
+        {
+          "index": 4,
+          "type": "NiAlphaProperty",
+          "offset": 607,
+          "size": 15,
+          "flags": 4845,
+          "threshold": 0,
+          "blend": true,
+          "sourceBlend": 6,
+          "destinationBlend": 7,
+          "alphaTest": true,
+          "testFunction": 4,
+          "noSorter": false
+        }
+      ]
+    },
+    {
+      "archivePath": "meshes\\actors\\character\\character assets\\feet_overlay.nif",
+      "sha256": "c58b2ccc52ee8bf7e08a2bb6934b43b4fdfbd02ea67471dab87656a8a4979cd3",
+      "bytes": 630,
+      "version": "20.2.0.7",
+      "userVersion": 12,
+      "bsVersion": 83,
+      "strings": [
+        "Feet [Ovly]",
+        "Scene Root"
+      ],
+      "blocks": [
+        {
+          "index": 0,
+          "type": "NiNode",
+          "offset": 228,
+          "size": 84
+        },
+        {
+          "index": 1,
+          "type": "NiTriShape",
+          "offset": 312,
+          "size": 97,
+          "shaderProperty": 2,
+          "alphaProperty": 4
+        },
+        {
+          "index": 2,
+          "type": "BSLightingShaderProperty",
+          "offset": 409,
+          "size": 112,
+          "shaderType": 5,
+          "flags1": "0x82601303",
+          "flags2": "0x02008081",
+          "alpha": 1.0,
+          "zTest": true,
+          "zWrite": true,
+          "decal": false,
+          "facegenDetailMap": false
+        },
+        {
+          "index": 3,
+          "type": "BSShaderTextureSet",
+          "offset": 521,
+          "size": 86,
+          "textures": [
+            "Textures\\Actors\\Character\\Overlays\\default.dds",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ]
+        },
+        {
+          "index": 4,
+          "type": "NiAlphaProperty",
+          "offset": 607,
+          "size": 15,
+          "flags": 4845,
+          "threshold": 0,
+          "blend": true,
+          "sourceBlend": 6,
+          "destinationBlend": 7,
+          "alphaTest": true,
+          "testFunction": 4,
+          "noSorter": false
+        }
+      ]
+    },
+    {
+      "archivePath": "meshes\\actors\\character\\character assets\\hands_overlay.nif",
+      "sha256": "59013cbe6e09a6a5ee5e564404ad65090150286328cd93d80ede0ee2ccb029ca",
+      "bytes": 631,
+      "version": "20.2.0.7",
+      "userVersion": 12,
+      "bsVersion": 83,
+      "strings": [
+        "Scene Root",
+        "Hands [Ovly]"
+      ],
+      "blocks": [
+        {
+          "index": 0,
+          "type": "NiNode",
+          "offset": 229,
+          "size": 84
+        },
+        {
+          "index": 1,
+          "type": "NiTriShape",
+          "offset": 313,
+          "size": 97,
+          "shaderProperty": 2,
+          "alphaProperty": 4
+        },
+        {
+          "index": 2,
+          "type": "BSLightingShaderProperty",
+          "offset": 410,
+          "size": 112,
+          "shaderType": 5,
+          "flags1": "0x82601303",
+          "flags2": "0x02008081",
+          "alpha": 1.0,
+          "zTest": true,
+          "zWrite": true,
+          "decal": false,
+          "facegenDetailMap": false
+        },
+        {
+          "index": 3,
+          "type": "BSShaderTextureSet",
+          "offset": 522,
+          "size": 86,
+          "textures": [
+            "Textures\\Actors\\Character\\Overlays\\default.dds",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ]
+        },
+        {
+          "index": 4,
+          "type": "NiAlphaProperty",
+          "offset": 608,
+          "size": 15,
+          "flags": 4845,
+          "threshold": 0,
+          "blend": true,
+          "sourceBlend": 6,
+          "destinationBlend": 7,
+          "alphaTest": true,
+          "testFunction": 4,
+          "noSorter": false
+        }
+      ]
+    }
+  ]
+}

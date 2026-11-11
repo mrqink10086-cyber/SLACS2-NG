@@ -2,6 +2,8 @@
 
 日期：2026-11-11；程序基线：1.0.7 / `b452ec1`。来源：用户提供的 NPC 对比截图、旧 Papyrus 脚本、本地 RaceMenu 源码、DDS 分析及生产适配器的桩接口探针。本轮没有游戏渲染复现。
 
+后续的逐槽建模、材质生命周期、1.6.1170 源码对照和已安装 BSA 实测见 [RaceMenu Face 几何与材质调研](racemenu-face-material-lifecycle.md)。
+
 ## 结论
 
 没有发现 C++ 把五层压成一层的证据。五槽条件下，生产适配器能分别写入五个 Face 节点的覆盖记录。旧脚本同样使用多个 Face 槽；当前脸部资源与旧版完全一致。因此应继续区分实际节点生成、面部材质/透明度、绘制顺序和资源可见范围。
@@ -28,7 +30,7 @@
 | `Face [Ovl3]` | `Oral/head3.dds` | 对应 `_n.dds`，alpha=1 |
 | `Face [Ovl4]` | `Oral/head2.dds` | 对应 `_n.dds`，alpha=1 |
 
-旧层保留已有槽位，新层分配剩余槽位。Face 写 diffuse index `0`、normal index `1` 和透明度，不写 FaceGen 专用 index `2`。Core 的 Face 资源池有 12 张，五层内会优先选择未使用的贴图索引。
+旧层保留已有槽位，新层分配剩余槽位。Face 写 diffuse index `0`、normal index `1` 和透明度，不写 index `2`；通道含义应按输出材质判断，不能仅由输入 FaceGen 类型推定。Core 的 Face 资源池有 12 张，五层内会优先选择未使用的贴图索引。
 
 探针以 `clang++ -std=c++23` 编译实际适配器及 `Settings.cpp`，使用 `tests/overlay_stubs`，运行退出码 0。它验证 CPU 提交路径，不验证目标机器的 RaceMenu ABI、节点生成或 GPU 混合。源码：[Face profile](<E:/source/repos/SLACS2 NG/src/integration/OverlayAdapter.cpp:41>)、[槽分配](<E:/source/repos/SLACS2 NG/src/integration/OverlayAdapter.cpp:623>)、[材质写入](<E:/source/repos/SLACS2 NG/src/integration/OverlayAdapter.cpp:979>)、[纹理选择](<E:/source/repos/SLACS2 NG/src/core/Core.cpp:57>)。
 
