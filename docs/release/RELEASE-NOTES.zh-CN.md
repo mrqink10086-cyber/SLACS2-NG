@@ -1,6 +1,9 @@
 # SLACS2 NG 1.0.7
 
-2026-11-11，包名 `SLACS2NG-1.0.7`。
+2026-11-11，程序包 `SLACS2NG-Main-1.0.7.zip`，独立纹理包 `SLACS2NG-Textures-1.0.zip`。
+
+- 两个 ZIP 根目录直接对应游戏 Data 内的内容，可直接拖入 MO2 安装，无需先解压。说明与文件清单分别位于 `Docs/SLACS2NG/main/` 和 `Docs/SLACS2NG/textures/`，两包安装路径互不覆盖。
+- 首次安装两包并分别启用；程序升级只替换 Main，保持 Textures 启用。纹理只有内容变化时才单独升版和发布；`tools/release.py` 默认只生成 Main，`--component textures` 生成纹理包，`--component all` 同时生成。
 
 - 补齐 ESP 中 26 个 EFSH 引用的 `Textures/slacs2/clothes/*.dds`，源文件来自原 P+ 0.7 资源，复制后逐文件核对 SHA-256。旧完整包和升级包均遗漏这 26 张图。
 - 打包校验从实际 ESP 的 EFSH 贴图字段提取非空资源引用，任一文件缺失都会阻止构建交付或生成发布包。七区域 264 张与装备效果 26 张合计 290 张 DDS。

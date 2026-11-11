@@ -1,6 +1,6 @@
 # SLACS2 NG 交付包说明
 
-本目录的 `Data` 包含中文菜单、全局配置、七区域覆盖层、26 个装备着色组合、保存/读档和诊断日志。
+发布分为 `SLACS2NG-Main-1.0.7.zip` 程序包与 `SLACS2NG-Textures-1.0.zip` 纹理包。首次安装需要两包；以后通常只更新程序包。
 
 ## 运行环境
 
@@ -21,20 +21,15 @@
 
 1. 确认游戏为 Skyrim SE 1.6.1170，SKSE 为 2.2.6。
 2. 安装 P+（含 `SexLab.esm`、`SexLabUtil.dll`）、RaceMenu 0.4.20、兼容的 SKSE Menu Framework。
-3. 将本目录 `Data` 下的内容合并到游戏 `Data` 目录：
-   - `SKSE/Plugins/SLACS2 NG.dll`
-   - `SKSE/Plugins/SLACS2NG.json`（全局配置，UTF-8）
-   - `SKSE/Plugins/SKSEMenuFramework.ini` 与 `SKSEMenuFrameworkStrings.json`（中文界面）
-   - `SKSE/Plugins/Fonts/NotoSansCJKsc-Regular.otf` 与 `NotoSansCJKsc-OFL.txt`
-   - `Scripts/SLACS_Main.pex`
-   - `SLACS_2_Plus_SCO.esp`
-   - `Textures/slacs2/**/*.dds`（七区域 264 张，加装备效果 26 张，共 290 个文件）
+3. 把两个 ZIP 分别直接拖入 MO2，或使用“从压缩包安装”，安装为两个独立模组并同时启用。无需预先解压或手动设置 Data 目录。程序包包含 DLL、ESP、PEX、设置和菜单字体；纹理包包含七区域 264 张与装备效果 26 张，共 290 张 DDS。压缩包根目录就是游戏 `Data` 内的内容，手动安装时合并到游戏的 `Data` 目录。
 4. 启用 `SLACS_2_Plus_SCO.esp`，确认 `SLACS_Main_Q` 的 VMAD 脚本为 `SLACS_Main`。
 5. 进入游戏后按 F1 打开 SKSE Menu Framework，选择“体液覆盖/设置”，全部设置在同页分组展开。
 
 > 本包中的 `SKSEMenuFramework.ini` 和 `SKSEMenuFrameworkStrings.json` 会替换框架自带的英文配置与字符串，以获得完整中文外壳。若你还使用其他依赖框架字符串的模组，请先备份这两个文件。
 
-本完整包为 `SLACS2NG-1.0.7`。旧完整包也遗漏了 `Textures/slacs2/clothes/` 的 26 张装备效果贴图，仅保留旧完整包再叠加升级包不能补齐它们；安装本包后应同时具备七区域贴图和 `clothes` 目录。
+以后更新时只替换 Main 模组，保持 Textures 模组启用；仅在贴图变动并发布新纹理版本时更新 Textures。纹理版本独立于程序版本，当前程序要求纹理包 1.0。更换 Main 前可保留自行修改的 `SKSE/Plugins/SLACS2NG.json`。
+
+从旧合包升级时，先安装两包，再停用旧合包，避免旧 DLL 或脚本覆盖新文件。旧完整包也遗漏了 `Textures/slacs2/clothes/` 的 26 张装备效果贴图，所以不能只依赖旧纹理；安装纹理包 1.0 后应同时具备七区域贴图和 `clothes` 目录。
 
 ## 配置
 
@@ -103,7 +98,7 @@ iNumOverlays=5
 
 | 项目 | 状态 | 证据 |
 | --- | --- | --- |
-| 构建 DLL/PEX/ESP/资源 | 构建通过 | 校验 ESP/VMAD、必需区域 diffuse 与 EFSH 引用贴图、字体；normal/specular 是可选通道。完整包交付 290 张 DDS |
+| 构建 DLL/PEX/ESP/资源 | 构建通过 | 校验 ESP/VMAD、必需区域 diffuse 与 EFSH 引用贴图、字体；normal/specular 是可选通道。独立纹理包交付 290 张 DDS |
 | 逻辑/时钟/序列化/适配器检查 | 全部通过 | 14 个宿主检查，包括 NPC 候选、贴图叠层、重试调度、后台停机和真实 P+ adapter 回调；原生 EFSH 检查另通过 ASan |
 | 菜单动作贯通 UI → Runtime → Core → 外观/效果 | 待游戏验收 | 代码路径、静态审核和界面文本已核对；需 1170 实机点击 |
 | 中文显示、缺字、字体重建 | 构建完成 | `tools/verify_chinese_font.py --strict` 覆盖菜单/宿主字符串/README |
@@ -125,17 +120,21 @@ iNumOverlays=5
 ## 目录结构
 
 ```text
-Data/
-  SKSE/Plugins/
+程序包 ZIP 根目录：
+SKSE/Plugins/
     SLACS2 NG.dll
     SLACS2NG.json
     SKSEMenuFramework.ini
     SKSEMenuFrameworkStrings.json
     Fonts/NotoSansCJKsc-Regular.otf
     Fonts/NotoSansCJKsc-OFL.txt
-  Scripts/SLACS_Main.pex
-  SLACS_2_Plus_SCO.esp
-  Textures/slacs2/...
+Scripts/SLACS_Main.pex
+SLACS_2_Plus_SCO.esp
+Docs/SLACS2NG/main/...
+
+纹理包 ZIP 根目录：
+Textures/slacs2/...
+Docs/SLACS2NG/textures/...
 ```
 
 ## 第三方分发条件

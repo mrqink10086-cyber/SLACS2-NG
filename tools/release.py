@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""Stage the installable SLACS2 NG tree and produce release artifacts.
-
-Run after ``xmake build -y "SLACS2 NG"`` (package.py runs as an after-build
-step and refreshes ``package/Data``). The output is intentionally reproducible
-in layout: a staging directory, a zip archive and SHA-256 manifests.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -13,7 +6,6 @@ import datetime as dt
 import hashlib
 import json
 import shutil
-import sys
 import zipfile
 from pathlib import Path
 
@@ -24,9 +16,11 @@ from verify_chinese_font import DEFAULT_FONT, missing_codepoints
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "package" / "Data"
 README = ROOT / "package" / "README.zh-CN.md"
+TEXTURE_README = ROOT / "package" / "TEXTURES.zh-CN.md"
 RELEASE_NOTES = ROOT / "docs" / "release" / "RELEASE-NOTES.zh-CN.md"
 DEFAULT_OUTPUT = ROOT / "artifacts"
-DEFAULT_NAME = "SLACS2NG-1.0.7"
+DEFAULT_NAME = "SLACS2NG-Main-1.0.7"
+TEXTURES_NAME = "SLACS2NG-Textures-1.0"
 
 REQUIRED_FILES = (
     "SKSE/Plugins/SLACS2 NG.dll",
@@ -63,6 +57,8 @@ def verify_package() -> None:
         raise SystemExit(f"Chinese font is missing glyphs used by the UI: {detail}")
     if not README.is_file():
         raise SystemExit(f"package README missing: {README}")
+    if not TEXTURE_README.is_file():
+        raise SystemExit(f"texture package README missing: {TEXTURE_README}")
     if not RELEASE_NOTES.is_file():
         raise SystemExit(f"release notes missing: {RELEASE_NOTES}")
 
@@ -71,7 +67,7 @@ def collect(staging: Path) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for path in sorted(item for item in staging.rglob("*") if item.is_file()):
         relative = path.relative_to(staging).as_posix()
-        if relative in {"FILE-MANIFEST.json", "FILE-MANIFEST.txt"}:
+        if path.name in {"FILE-MANIFEST.json", "FILE-MANIFEST.txt"}:
             continue
         rows.append({
             "path": relative,
@@ -81,15 +77,18 @@ def collect(staging: Path) -> list[dict[str, object]]:
     return rows
 
 
-def write_manifest(staging: Path, name: str, rows: list[dict[str, object]]) -> None:
+def write_manifest(staging: Path, name: str, component: str, rows: list[dict[str, object]]) -> None:
     manifest = {
         "name": name,
+        "component": component,
+        "requires": {"textures": TEXTURES_NAME} if component == "main" else {},
         "generatedAtUtc": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
         "fileCount": len(rows),
         "totalBytes": sum(int(row["size"]) for row in rows),
         "files": rows,
     }
-    (staging / "FILE-MANIFEST.json").write_text(
+    destination = staging / "Docs" / "SLACS2NG" / component
+    (destination / "FILE-MANIFEST.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     lines = [
         f"# {name}",
@@ -97,7 +96,7 @@ def write_manifest(staging: Path, name: str, rows: list[dict[str, object]]) -> N
         "# sha256  size  path",
     ]
     lines.extend(f"{row['sha256']}  {row['size']:>12}  {row['path']}" for row in rows)
-    (staging / "FILE-MANIFEST.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (destination / "FILE-MANIFEST.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def write_zip(staging: Path, archive: Path) -> None:
@@ -108,38 +107,57 @@ def write_zip(staging: Path, archive: Path) -> None:
             bundle.write(path, relative, compress_type=compression)
 
 
+def stage_component(component: str, name: str, output: Path, no_zip: bool) -> None:
+    output = output.resolve()
+    staging = (output / name).resolve()
+    if not name or name in {".", ".."} or "/" in name or "\\" in name or staging.parent != output:
+        raise SystemExit("archive name must be a single directory name")
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True)
+
+    for source in sorted(path for path in PACKAGE.rglob("*") if path.is_file()):
+        relative = source.relative_to(PACKAGE)
+        is_texture = relative.parts[0].casefold() == "textures"
+        if is_texture != (component == "textures"):
+            continue
+        destination = staging / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+
+    documentation = staging / "Docs" / "SLACS2NG" / component
+    documentation.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(TEXTURE_README if component == "textures" else README, documentation / "README.zh-CN.md")
+    if component == "main":
+        shutil.copy2(RELEASE_NOTES, documentation / "RELEASE-NOTES.zh-CN.md")
+
+    rows = collect(staging)
+    write_manifest(staging, name, component, rows)
+
+    archive = output / f"{name}.zip"
+    if not no_zip:
+        write_zip(staging, archive)
+
+    total = sum(int(row["size"]) for row in rows)
+    print(f"staged {len(rows)} files, {total} bytes -> {staging}")
+    if not no_zip:
+        print(f"archive {archive.stat().st_size} bytes -> {archive}")
+    print(f"manifest {documentation / 'FILE-MANIFEST.txt'}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--name", default=DEFAULT_NAME)
+    parser.add_argument("--component", choices=("main", "textures", "all"), default="main")
+    parser.add_argument("--name", default=DEFAULT_NAME, help="main component archive name")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--no-zip", action="store_true")
     args = parser.parse_args()
 
     verify_package()
-
-    staging = args.output / args.name
-    if staging.exists():
-        shutil.rmtree(staging)
-    staging.mkdir(parents=True)
-
-    shutil.copytree(PACKAGE, staging / "Data")
-    shutil.copy2(README, staging / "README.zh-CN.md")
-    shutil.copy2(RELEASE_NOTES, staging / "RELEASE-NOTES.zh-CN.md")
-
-    rows = collect(staging)
-    write_manifest(staging, args.name, rows)
-
-    archive = args.output / f"{args.name}.zip"
-    if archive.exists():
-        archive.unlink()
-    if not args.no_zip:
-        write_zip(staging, archive)
-
-    total = sum(int(row["size"]) for row in rows)
-    print(f"staged {len(rows)} files, {total} bytes -> {staging}")
-    if not args.no_zip:
-        print(f"archive {archive.stat().st_size} bytes -> {archive}")
-    print(f"manifest {staging / 'FILE-MANIFEST.txt'}")
+    if args.component in {"main", "all"}:
+        stage_component("main", args.name, args.output, args.no_zip)
+    if args.component in {"textures", "all"}:
+        stage_component("textures", TEXTURES_NAME, args.output, args.no_zip)
 
 
 if __name__ == "__main__":
