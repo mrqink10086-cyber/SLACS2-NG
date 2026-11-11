@@ -100,17 +100,19 @@ iNumOverlays=5
 | --- | --- | --- |
 | 构建 DLL/PEX/ESP/资源 | 构建通过 | 校验 ESP/VMAD、必需区域 diffuse 与 EFSH 引用贴图、字体；normal/specular 是可选通道。独立纹理包交付 290 张 DDS |
 | 逻辑/时钟/序列化/适配器检查 | 全部通过 | 14 个宿主检查，包括 NPC 候选、贴图叠层、重试调度、后台停机和真实 P+ adapter 回调；原生 EFSH 检查另通过 ASan |
-| 菜单动作贯通 UI → Runtime → Core → 外观/效果 | 待游戏验收 | 代码路径、静态审核和界面文本已核对；需 1170 实机点击 |
+| NPC 菜单操作、测试加层与外观显示 | 已游戏实测 | 2026-11-11 用户提供 1.0.7 NPC 一层/五层截图，反馈目前可用；Face 视觉叠加异常另列 |
 | 中文显示、缺字、字体重建 | 构建完成 | `tools/verify_chinese_font.py --strict` 覆盖菜单/宿主字符串/README |
 | 配置重启生效、读档保持全局设置 | 待游戏验收 | 单元测试覆盖 load/save/roundtrip；实机重启与读档待执行 |
 | NPC 间/多人、tid 复用、异步取消、连续换档 | 待游戏验收 | S3/S5 静态审核与逻辑测试通过；P+ 实机场景待执行 |
-| RaceMenu 覆盖层、NPC/3D、七区域/26 效果 | 待游戏验收 | 需要已调整 `skee64.ini` 的 1170 环境 |
+| Face 多层视觉叠加 | 已实测发现异常 | 面部一层与五层未呈现预期的叠加差异，正在调查 |
+| RaceMenu 七区域逐项渲染、NPC/3D、26 效果组合 | 待完整验收 | 已有 NPC 外观实测；逐区域、逐组合和重建恢复仍需单独记录 |
 | 与 SlaveTatsNG 共存 | 待游戏验收 | 仅通过自有槽位前缀和默认贴图清理避免占用；需实机共存验证 |
 
-没有完成的游戏实测不会被标记为“游戏验收通过”。详细验证记录见 `docs/implementation/SESSION-05.md`。
+当前版本已有游戏实测反馈，范围与已知异常见仓库 `docs/GAME-TEST-2026-11-11.zh-CN.md`；宿主验证历史见 `docs/implementation/SESSION-05.md`。
 
 ## 已知限制
 
+- Face 一层到五层的视觉叠加异常正在调查；源码与资源分析见仓库 `docs/research/face-overlay-stacking.md`。
 - 需要 RaceMenu 槽位调整；默认 6/3/3/3 且 `bPlayerOnly=1` 时只能显示部分区域。
 - 未集成 BiS/DnB；没有外部信号适配器时不产生对应效果或覆盖。
 - 保存快照可能比最新一次 pump 晚一拍；保存回调不等待 VM、任务或材质。
