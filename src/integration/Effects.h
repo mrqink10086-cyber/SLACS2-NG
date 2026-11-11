@@ -4,10 +4,12 @@
 #include "runtime/ActorRegistry.h"
 
 #include <array>
+#include <unordered_set>
 #include <unordered_map>
 
 namespace RE
 {
+	class TESEffectShader;
 	class SpellItem;
 }
 
@@ -56,8 +58,10 @@ namespace slacs
 			Revision revision{};
 		};
 
-		std::array<RE::SpellItem*, 27> spells_{};
+		std::array<RE::SpellItem*, 27> legacySpells_{};
+		std::array<RE::TESEffectShader*, 27> shaders_{};
 		std::unordered_map<ActorId, Applied> applied_;
+		std::unordered_set<ActorId> invalidated_;
 		bool initialized_{};
 	};
 }

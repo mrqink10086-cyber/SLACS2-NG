@@ -3,7 +3,7 @@ includes("lib/commonlibsse-ng")
 
 -- set project constants
 set_project("SLACS2 NG")
-set_version("1.0.6")
+set_version("1.0.7")
 set_license("GPL-3.0")
 set_languages("c++23")
 set_encodings("utf-8")

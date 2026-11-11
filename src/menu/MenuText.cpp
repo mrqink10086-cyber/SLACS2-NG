@@ -54,13 +54,13 @@ namespace slacs
 				return "覆盖开关";
 			}
 			if (a_key == "effectsEnabled") {
-				return "效果法术开关";
+				return "装备着色效果开关";
 			}
 			if (a_key == "spellLevel1Threshold") {
-				return "一级法术阈值";
+				return "一级效果阈值";
 			}
 			if (a_key == "spellLevel2Threshold") {
-				return "二级法术阈值";
+				return "二级效果阈值";
 			}
 			if (a_key == "allowFemaleFluid") {
 				return "女性来源体液";

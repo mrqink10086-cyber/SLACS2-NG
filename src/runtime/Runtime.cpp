@@ -5,7 +5,11 @@
 #include "menu/MenuText.h"
 
 #include <SKSE/SKSE.h>
+#include <SKSE/Events.h>
+#include <RE/B/BSTEvent.h>
 #include <RE/I/IObjectHandlePolicy.h>
+#include <RE/S/ScriptEventSourceHolder.h>
+#include <RE/T/TESEquipEvent.h>
 #include <RE/V/VirtualMachine.h>
 
 #include <Windows.h>
@@ -83,6 +87,88 @@ namespace slacs
 			return "unknown";
 		}
 	}
+
+	class RuntimeEventSink final :
+		public RE::BSTEventSink<RE::TESEquipEvent>,
+		public RE::BSTEventSink<SKSE::NiNodeUpdateEvent>
+	{
+	public:
+		explicit RuntimeEventSink(Runtime& a_runtime) :
+			runtime_(std::addressof(a_runtime))
+		{}
+
+		bool startEquipment()
+		{
+			if (equipmentSource_) {
+				return true;
+			}
+			auto* source = RE::ScriptEventSourceHolder::GetSingleton();
+			if (!source) {
+				return false;
+			}
+			source->AddEventSink(static_cast<RE::BSTEventSink<RE::TESEquipEvent>*>(this));
+			equipmentSource_ = source;
+			return true;
+		}
+
+		bool startNodeUpdates()
+		{
+			if (nodeUpdateSource_) {
+				return true;
+			}
+			auto* source = SKSE::GetNiNodeUpdateEventSource();
+			if (!source) {
+				return false;
+			}
+			source->AddEventSink(static_cast<RE::BSTEventSink<SKSE::NiNodeUpdateEvent>*>(this));
+			nodeUpdateSource_ = source;
+			return true;
+		}
+
+		void stop() noexcept
+		{
+			auto* nodeSource = std::exchange(nodeUpdateSource_, nullptr);
+			if (nodeSource) {
+				nodeSource->RemoveEventSink(static_cast<RE::BSTEventSink<SKSE::NiNodeUpdateEvent>*>(this));
+			}
+			auto* equipmentSource = std::exchange(equipmentSource_, nullptr);
+			if (equipmentSource) {
+				equipmentSource->RemoveEventSink(static_cast<RE::BSTEventSink<RE::TESEquipEvent>*>(this));
+			}
+			runtime_ = nullptr;
+		}
+
+		RE::BSEventNotifyControl ProcessEvent(
+			const RE::TESEquipEvent* a_event,
+			RE::BSTEventSource<RE::TESEquipEvent>*) override
+		{
+			if (a_event && a_event->actor && runtime_) {
+				const auto formId = a_event->actor->GetFormID();
+				if (formId != kInvalidFormId) {
+					runtime_->enqueue(RuntimeCommand{ EquipmentChanged{ formId, runtime_->epoch() } });
+				}
+			}
+			return RE::BSEventNotifyControl::kContinue;
+		}
+
+		RE::BSEventNotifyControl ProcessEvent(
+			const SKSE::NiNodeUpdateEvent* a_event,
+			RE::BSTEventSource<SKSE::NiNodeUpdateEvent>*) override
+		{
+			if (a_event && a_event->reference && runtime_) {
+				const auto formId = a_event->reference->GetFormID();
+				if (formId != kInvalidFormId) {
+					runtime_->enqueue(RuntimeCommand{ Actor3DChanged{ formId, runtime_->epoch() } });
+				}
+			}
+			return RE::BSEventNotifyControl::kContinue;
+		}
+
+	private:
+		Runtime* runtime_{};
+		RE::ScriptEventSourceHolder* equipmentSource_{};
+		RE::BSTEventSource<SKSE::NiNodeUpdateEvent>* nodeUpdateSource_{};
+	};
 
 	Runtime& Runtime::instance()
 	{
@@ -291,7 +377,14 @@ namespace slacs
 
 		effectsReady_ = effects_.initialize();
 		if (!effectsReady_) {
-			logs::error("Effects initialization failed; spells will remain unavailable");
+			logs::error("Effects initialization failed; effects are unavailable");
+		}
+		eventSink_ = std::make_unique<RuntimeEventSink>(*this);
+		if (effectsReady_ && !eventSink_->startEquipment()) {
+			logs::warn("Equipment event source unavailable; equipment notifications are unavailable");
+		}
+		if (!eventSink_->startNodeUpdates()) {
+			logs::warn("NiNode update event source unavailable; model rebuild notifications are unavailable");
 		}
 
 		initialized_.store(true, std::memory_order_release);
@@ -626,6 +719,9 @@ namespace slacs
 		ingress_.setOpen(false);
 		const auto oldEpoch = epoch();
 		epoch_.fetch_add(1, std::memory_order_acq_rel);
+		if (eventSink_) {
+			eventSink_->stop();
+		}
 		background_.stop();
 		{
 			std::lock_guard lock(pumpMutex_);
@@ -795,6 +891,12 @@ namespace slacs
 		if (!report.deferred) {
 			publishSaveSnapshot();
 			processDirtyVisuals(report, 64);
+		} else {
+			constexpr auto kEffectReserve = std::chrono::milliseconds{ 2 };
+			const auto elapsed = std::chrono::steady_clock::now() - started;
+			if (a_budget.maxWallTime.count() == 0 || elapsed + kEffectReserve <= a_budget.maxWallTime) {
+				processDirtyEffects(report, 8);
+			}
 		}
 
 		perfMaxQueueDepth_ = std::max<std::uint64_t>(perfMaxQueueDepth_, ingress_.size());
@@ -967,7 +1069,8 @@ namespace slacs
 
 	void Runtime::advanceActor(ActorId a_actor, const GameTime& a_now, const EnvironmentSample* a_sample, PumpReport& a_report)
 	{
-		if (coreState_.actors.find(a_actor) == coreState_.actors.end()) {
+		const auto before = coreState_.actors.find(a_actor);
+		if (before == coreState_.actors.end()) {
 			RuntimeDiagnostic diagnostic{};
 			diagnostic.module = RuntimeModule::Core;
 			diagnostic.code = RuntimeDiagnosticCode::ActorUnavailable;
@@ -982,7 +1085,12 @@ namespace slacs
 		if (a_sample) {
 			advance.environment = *a_sample;
 		}
-		const auto change = Core::apply(coreState_, CoreOp{ std::move(advance) }, settings_, a_now);
+		const auto previousRevision = before->second.revision;
+		auto change = Core::apply(coreState_, CoreOp{ std::move(advance) }, settings_, a_now);
+		const auto after = coreState_.actors.find(a_actor);
+		if (after != coreState_.actors.end() && after->second.revision == previousRevision) {
+			change.spells.clear();
+		}
 		applyChangeSet(change, a_report);
 	}
 
@@ -1090,6 +1198,21 @@ namespace slacs
 						addStale(a_report, RuntimeModule::Overlay, command.epoch);
 					} else {
 						invalidateActorVisuals(command.actor, VisualInvalidation::Actor3DRebuilt);
+					}
+				} else if constexpr (std::is_same_v<T, EquipmentChanged>) {
+					if (command.epoch != epoch()) {
+						addStale(a_report, RuntimeModule::Effects, command.epoch);
+					} else if (const auto actor = actorRegistry_.find(command.formId);
+						actor && coreState_.actors.contains(*actor)) {
+						effects_.invalidate(*actor);
+						enqueueCurrentEffectTarget(*actor, false);
+					}
+				} else if constexpr (std::is_same_v<T, Actor3DChanged>) {
+					if (command.epoch != epoch()) {
+						addStale(a_report, RuntimeModule::Overlay, command.epoch);
+					} else if (const auto actor = actorRegistry_.find(command.formId);
+						actor && coreState_.actors.contains(*actor)) {
+						invalidateActorVisuals(*actor, VisualInvalidation::Actor3DRebuilt, true);
 					}
 				} else if constexpr (std::is_same_v<T, OverlayInstalled>) {
 					if (command.epoch != epoch()) {
@@ -1442,47 +1565,7 @@ namespace slacs
 
 		if (effectsReady_) {
 			for (const auto& target : a_change.spells) {
-				const auto queued = dirtyEffects_.find(target.actor);
-				const auto retryNow = std::chrono::steady_clock::now();
-				if (queued != dirtyEffects_.end() && queued->second.revision == target.revision &&
-					!dirtyEffectRetries_.ready(target.actor, retryNow)) {
-					continue;
-				}
-				if (queued == dirtyEffects_.end() || queued->second.revision != target.revision) {
-					dirtyEffectRetries_.clear(target.actor);
-				}
-				const auto lease = actorRegistry_.resolve(target.actor, ResolveNeed::ActorOnly);
-				if (!lease) {
-					dirtyEffects_[target.actor] = target;
-					dirtyEffectRetries_.defer(target.actor, std::chrono::steady_clock::now() + std::chrono::seconds{ 2 });
-					continue;
-				}
-				const auto result = effects_.reconcile(*lease, target);
-				if (result.status == EffectStatus::Applied || result.status == EffectStatus::NoChange) {
-					dirtyEffects_.erase(target.actor);
-					dirtyEffectRetries_.clear(target.actor);
-					continue;
-				}
-				if (result.status == EffectStatus::StaleRevision) {
-					// A newer SpellTarget owns the actor; do not replay this one.
-					continue;
-				}
-				dirtyEffects_[target.actor] = target;
-				dirtyEffectRetries_.defer(target.actor, std::chrono::steady_clock::now() + std::chrono::seconds{ 2 });
-				if (result.status != EffectStatus::DeferredActorUnavailable) {
-					RuntimeDiagnostic runtime{};
-					runtime.module = RuntimeModule::Effects;
-					runtime.code = result.error == EffectErrorCode::StaleRevision ?
-						RuntimeDiagnosticCode::StaleRevision :
-						RuntimeDiagnosticCode::AdapterFailure;
-					runtime.epoch = epoch();
-					runtime.actor = target.actor;
-					a_report.diagnostics.push_back(runtime);
-					logs::warn("Effects reconcile failed actor={} status={} error={}",
-						target.actor,
-						static_cast<int>(result.status),
-						static_cast<int>(result.error));
-				}
+				enqueueCurrentEffectTarget(target.actor, false);
 			}
 		}
 
@@ -1535,10 +1618,7 @@ namespace slacs
 				next->second = false;
 				continue;
 			}
-			if (!next->second) {
-				next->second = true;
-				invalidateActorVisuals(actor, VisualInvalidation::Actor3DRebuilt);
-			}
+			markActor3DReady(actor);
 		}
 
 		const auto started = std::chrono::steady_clock::now();
@@ -1617,10 +1697,16 @@ namespace slacs
 				continue;
 			}
 			++attempted;
-			const auto lease = actorRegistry_.resolve(actor, ResolveNeed::ActorOnly);
+			const auto needs3D = target.desired.enabled && target.desired.combinationIndex != 0;
+			const auto lease = actorRegistry_.resolve(
+				actor,
+				needs3D ? ResolveNeed::ActorWith3D : ResolveNeed::ActorOnly);
 			if (!lease) {
 				dirtyEffectRetries_.defer(actor, std::chrono::steady_clock::now() + std::chrono::seconds{ 2 });
 				continue;
+			}
+			if (needs3D) {
+				markActor3DReady(actor);
 			}
 			const auto result = effects_.reconcile(*lease, target);
 			if (result.status == EffectStatus::Applied ||
@@ -1637,6 +1723,15 @@ namespace slacs
 		}
 		if (dirtyEffectRetries_.hasReady(dirtyEffects_, std::chrono::steady_clock::now())) {
 			a_report.deferred = true;
+		}
+	}
+
+	void Runtime::markActor3DReady(ActorId a_actor)
+	{
+		const auto ready = visual3DReady_.try_emplace(a_actor, false).first;
+		if (!ready->second) {
+			ready->second = true;
+			invalidateActorVisuals(a_actor, VisualInvalidation::Actor3DRebuilt);
 		}
 	}
 
@@ -1670,6 +1765,12 @@ namespace slacs
 			enqueueCurrentTarget(a_actor, region, a_resetRetry);
 		}
 		effects_.invalidate(a_actor);
+		enqueueCurrentEffectTarget(a_actor, a_resetRetry);
+		background_.request();
+	}
+
+	void Runtime::enqueueCurrentEffectTarget(ActorId a_actor, bool a_resetRetry)
+	{
 		const auto found = coreState_.actors.find(a_actor);
 		if (found != coreState_.actors.end()) {
 			SpellTarget target{};
@@ -1692,12 +1793,15 @@ namespace slacs
 				level(anal) * 9 + level(vaginal) * 3 + level(oral));
 			target.desired.enabled = settings_.effectsEnabled;
 			const auto queued = dirtyEffects_.find(a_actor);
-			if (a_resetRetry || queued == dirtyEffects_.end() || queued->second.revision != target.revision) {
+			const bool changed = queued == dirtyEffects_.end() ||
+				queued->second.revision != target.revision ||
+				queued->second.desired.combinationIndex != target.desired.combinationIndex ||
+				queued->second.desired.enabled != target.desired.enabled;
+			if (a_resetRetry || changed) {
 				dirtyEffectRetries_.clear(a_actor);
 			}
 			dirtyEffects_[a_actor] = target;
 		}
-		background_.request();
 	}
 
 	void Runtime::processMenuAction(const MenuAction& a_action, PumpReport& a_report)

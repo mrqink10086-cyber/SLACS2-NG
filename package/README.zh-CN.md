@@ -1,6 +1,6 @@
 # SLACS2 NG 交付包说明
 
-本目录的 `Data` 是当前项目维护的安装内容，不覆盖旧包或其他模组。S8/S9 交付包含中文菜单、全局配置、七区域覆盖层、26 个效果法术、保存/读档和诊断日志。
+本目录的 `Data` 包含中文菜单、全局配置、七区域覆盖层、26 个装备着色组合、保存/读档和诊断日志。
 
 ## 运行环境
 
@@ -28,11 +28,13 @@
    - `SKSE/Plugins/Fonts/NotoSansCJKsc-Regular.otf` 与 `NotoSansCJKsc-OFL.txt`
    - `Scripts/SLACS_Main.pex`
    - `SLACS_2_Plus_SCO.esp`
-   - `Textures/slacs2/**/*.dds`（七区域共 264 个文件，约 1.2 GB）
+   - `Textures/slacs2/**/*.dds`（七区域 264 张，加装备效果 26 张，共 290 个文件）
 4. 启用 `SLACS_2_Plus_SCO.esp`，确认 `SLACS_Main_Q` 的 VMAD 脚本为 `SLACS_Main`。
 5. 进入游戏后按 F1 打开 SKSE Menu Framework，选择“体液覆盖/设置”，全部设置在同页分组展开。
 
 > 本包中的 `SKSEMenuFramework.ini` 和 `SKSEMenuFrameworkStrings.json` 会替换框架自带的英文配置与字符串，以获得完整中文外壳。若你还使用其他依赖框架字符串的模组，请先备份这两个文件。
+
+本完整包为 `SLACS2NG-1.0.7`。旧完整包也遗漏了 `Textures/slacs2/clothes/` 的 26 张装备效果贴图，仅保留旧完整包再叠加升级包不能补齐它们；安装本包后应同时具备七区域贴图和 `clothes` 目录。
 
 ## 配置
 
@@ -48,7 +50,7 @@
 
 “体液覆盖/设置”只有一个入口，以下分组在同页展开，设置共用“应用并保存”“仅应用”“撤销修改”：
 
-- **覆盖层与效果**：覆盖层开关、透明度、Mega、女性来源、效果法术及 1/3 级阈值、来源类别、RaceMenu 实际槽位容量。全部成年女性 NPC 均可作为自动目标，不需要随从身份。
+- **覆盖层与效果**：覆盖层开关、透明度、Mega、女性来源、装备着色效果及 1/3 级阈值、来源类别、RaceMenu 实际槽位容量。全部成年女性 NPC 均可作为自动目标，不需要随从身份。
 - **衰减与清洗**：自然衰减、每层间隔（游戏小时）、雨水加速、120 活动秒整体清洗或关闭；说明睡眠/等待/快速旅行、仅室外已观测降雨、菜单暂停和游泳立即清除。
 - **角色管理与运行状态**：已跟踪角色、玩家及按需刷新的已加载 NPC 列表，七区域层数、清除/刷新、依赖与资源状态、最近诊断和测试加层。点击“刷新已加载 NPC”，再点击角色行选择测试目标；也可面向 NPC 后打开菜单，点击“选择准星 NPC”。候选默认只显示女性，可取消筛选；本插件没有 N 键选角功能。
 
@@ -92,15 +94,17 @@ iNumOverlays=5
 - 七个区域均有普通与 Mega 贴图：Face、BodyVaginal、BodyAnal、BodyBreast 各 12 个索引，BodyLegs、Hands、Feet 各 4 个。
 - 每层使用独立槽位，追加层保留已有层的槽位和贴图；12 张资源的区域前五层使用不同贴图。仅有 4 张资源的区域第五层会复用一张，仍作为独立覆盖层叠加。
 - Body 区域使用 diffuse + normal + specular；Face 写 diffuse + normal；Hands/Feet/Legs 按配置写现有贴图。
-- 效果法术共 26 个组合（口腔 × 阴道 × 肛门，等级 0/1/2），FormID 从 `SLACS_2_Plus_SCO.esp` 解析。
+- 装备着色共 26 个非空组合，口腔、阴道和肛门各有 0/1/2 级，以 `anal*9 + vaginal*3 + oral` 编成 0–26；0 表示关闭。
+- C++ 从保留的 SPEL → MGEF → EFSH 记录解析资源，直接播放 EFSH；旧版法术仅用于迁移清除。使用 `Textures/slacs2/clothes/` 下的 26 张组合贴图，打包时读取 ESP 的 EFSH 贴图字段逐项检查。
+- 层记录仍是唯一业务状态。运行时核验本插件的着色实例，换装和 3D 重建触发重新绑定；瞬态实例不写入 co-save。实际换装覆盖、停止和读档恢复需游戏内验收。
 - UBE 贴图不在本包内；缺少 `textures/slacs2_ube` 是预期状态，不影响其他区域。
 
 ## 验证状态
 
 | 项目 | 状态 | 证据 |
 | --- | --- | --- |
-| 构建 DLL/PEX/ESP/资源 | 构建完成 | `xmake build -y "SLACS2 NG"`；`tools/package.py` 核对 ESP、264 张贴图、字体与 VMAD |
-| 逻辑/时钟/序列化/适配器检查 | 构建完成 | 14 个宿主检查通过，包括 NPC 候选、贴图叠层、重试调度、后台停机和真实 P+ adapter 回调 |
+| 构建 DLL/PEX/ESP/资源 | 构建通过 | 校验 ESP/VMAD、必需区域 diffuse 与 EFSH 引用贴图、字体；normal/specular 是可选通道。完整包交付 290 张 DDS |
+| 逻辑/时钟/序列化/适配器检查 | 全部通过 | 14 个宿主检查，包括 NPC 候选、贴图叠层、重试调度、后台停机和真实 P+ adapter 回调；原生 EFSH 检查另通过 ASan |
 | 菜单动作贯通 UI → Runtime → Core → 外观/效果 | 待游戏验收 | 代码路径、静态审核和界面文本已核对；需 1170 实机点击 |
 | 中文显示、缺字、字体重建 | 构建完成 | `tools/verify_chinese_font.py --strict` 覆盖菜单/宿主字符串/README |
 | 配置重启生效、读档保持全局设置 | 待游戏验收 | 单元测试覆盖 load/save/roundtrip；实机重启与读档待执行 |

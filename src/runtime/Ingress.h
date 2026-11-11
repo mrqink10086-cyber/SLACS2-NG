@@ -100,6 +100,18 @@ namespace slacs
 		SessionEpoch epoch{};
 	};
 
+	struct EquipmentChanged
+	{
+		FormId formId{};
+		SessionEpoch epoch{};
+	};
+
+	struct Actor3DChanged
+	{
+		FormId formId{};
+		SessionEpoch epoch{};
+	};
+
 	struct OverlayInstalled
 	{
 		FormId formId{};
@@ -129,6 +141,8 @@ namespace slacs
 		DeadlineElapsed,
 		MenuAction,
 		ActorVisualInvalidated,
+		EquipmentChanged,
+		Actor3DChanged,
 		OverlayInstalled,
 		LoadNotice>;
 

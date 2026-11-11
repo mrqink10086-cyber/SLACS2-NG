@@ -115,7 +115,7 @@ struct IngressResult { IngressStatus status; std::optional<IngressSequence> sequ
 ```cpp
 using RuntimeCommand = std::variant<NativeOrgasm, SceneNotice, PPlusCompleted,
     EnvironmentObserved, DeadlineElapsed, MenuAction, ActorVisualInvalidated,
-    LoadNotice>;
+    EquipmentChanged, Actor3DChanged, OverlayInstalled, LoadNotice>;
 
 using CoreOp = std::variant<AddLayers, ClearRegions, Advance, SettingsChanged>;
 ```
@@ -129,6 +129,9 @@ using CoreOp = std::variant<AddLayers, ClearRegions, Advance, SettingsChanged>;
 | `DeadlineElapsed` | `{ DeadlineId id; ActorId actor; DeadlineKind kind; SessionEpoch epoch; std::optional<Region> region; Revision ownerRevision; }` | 期限唤醒只是提示；Runtime/Core 再核对相应 actor/region revision，过期 owner revision 无副作用。 |
 | `MenuAction` | `std::variant<ApplySettings, ClearActor, RefreshActor, TestAdd, TestClear, RefreshActorCandidates, SelectCrosshairActor>` | 每个动作均携带创建时 `SessionEpoch`；actor 动作含 `ActorId`，Runtime 拒绝过期会话动作。候选刷新与准星查询由 Runtime 在游戏线程执行，结果按值缓存到连续数组并发布菜单快照；常规 pump 不枚举场景角色。详细字段见 S8。 |
 | `ActorVisualInvalidated` | `{ ActorId actor; Revision revision; SessionEpoch epoch; }` | RaceMenu 安装或 3D 重建后请求重新 reconcile；epoch 随被观察的会话保存，不保存节点或材质。 |
+| `EquipmentChanged` | `{ FormId formId; SessionEpoch epoch; }` | 装备通知；pump 查找已跟踪角色并排入效果重绑，不重建覆盖层。 |
+| `Actor3DChanged` | `{ FormId formId; SessionEpoch epoch; }` | SKSE 模型更新通知；pump 查找已跟踪角色并使视觉投影失效。 |
+| `OverlayInstalled` | `{ FormId formId; SessionEpoch epoch; }` | RaceMenu 安装回调；只复制身份值，pump 再处理对应角色的投影。 |
 | `LoadNotice` | `{ enum Phase { Begin, Complete, Failed, NewGame, Revert } phase; SessionEpoch epoch; }` | 由 Runtime 生命周期处理，不传给 Core::apply。 |
 
 `AddLayers` 字段为 `{ ActorId source; Tid tid; IngressSequence sequence; std::uint64_t selectionSeed; std::vector<InteractionTarget> targets; }`。Runtime 提供随机种子，Core 据此选择稳定纹理编号；Core 不访问系统随机源。`ClearRegions` 为 `{ ActorId actor; std::vector<Region> regions; }`。`Advance` 为 `{ ActorId actor; GameTime now; std::optional<EnvironmentSample> environment; }`，无环境采样时只推进日历与活动时间。`SettingsChanged` 是空标记；活动 `Settings` 由 `Core::apply` 参数提供。CoreOp 不携带外部 callback 或生命周期命令。
@@ -349,18 +352,21 @@ void OverlayAdapter::invalidateActor(ActorId actor, VisualInvalidation reason);
 void OverlayAdapter::clearSession(SessionEpoch epoch);
 bool Effects::initialize();
 EffectResult Effects::reconcile(const ActorLease& actor, const SpellTarget& target);
+void Effects::invalidate(ActorId actor);
 void Effects::clearSession(SessionEpoch epoch);
 ```
 
-`RegionTarget` 是一个区域的完整期望序列。`DesiredSpell::combinationIndex` 为 `(analLevel*9)+(vaginalLevel*3)+oralLevel`，范围 0–26；0 或 enabled=false 表示移除自有法术。Overlay 初始化协商 RaceMenu v2；Effects 初始化解析保留的 26 组记录。两者的记录表、材质 profile 和资源路径由模块内部管理。
+`RegionTarget` 是一个区域的完整期望序列。`DesiredSpell::combinationIndex` 为 `(analLevel*9)+(vaginalLevel*3)+oralLevel`，范围 0–26；0 或 enabled=false 表示关闭自有装备着色。`DesiredSpell`/`SpellTarget` 保留既有类型名，其值是期望组合而非已施加法术。Overlay 初始化协商 RaceMenu v2；Effects 初始化经保留的 26 组 SPEL → MGEF → EFSH 记录解析着色资源，并保留 SPEL 表用于旧版迁移清除。
 
-Runtime 每次调用前经 ActorRegistry 获取临时 ActorLease；Overlay 要求 ActorWith3D，Effects 只要求 ActorOnly。无可用 lease 或适配器失败时保留完整 dirty 目标，并用 steady clock 为每项设置两秒冷却；冷却项不计入可执行积压。新目标、手动刷新和会话切换会更新或清除对应冷却；接受设置变更时清除旧冷却，立即应用由新设置导出的目标。适配器只在调用期间借用 lease，管理本插件拥有的槽位、键与法术。`clearSession` 仅清理适配器缓存，不访问正在卸载的世界；游戏执行阶段的正常清理通过空 RegionTarget/DesiredSpell 完成。失效通知只入队。
+Runtime 每次调用前经 ActorRegistry 获取临时 ActorLease；Overlay 和启用非零组合的 Effects 要求 ActorWith3D，关闭 Effects 只要求 ActorOnly。无可用 lease 或适配器失败时保留完整 dirty 目标，并用 steady clock 为每项设置两秒冷却；冷却项不计入可执行积压。新目标、手动刷新和会话切换会更新或清除对应冷却；接受设置变更时清除旧冷却，立即应用由新设置导出的目标。适配器只在调用期间借用 lease，管理本插件拥有的槽位、键与 EFSH 实例。`clearSession` 仅清理适配器缓存，不访问正在卸载的世界；游戏执行阶段的正常清理通过空 RegionTarget/DesiredSpell 完成。失效通知只入队。
 
 OverlayAdapter 将 Region/LayerVisual 映射为材质 profile、槽位和差量操作。应用缓存同时检查业务 revision 与当前 3D 的修订；invalidateActor 清除该 actor 的已应用签名，使业务未变但 3D 重建时也会重画。按 `GetOverlayCount(Normal, location)` 扫描完整实际池，每域最多 127 槽，Body 四区域共享身体池并保护彼此已占用的槽。无 3D 时保留 dirty；容量不足只使用自有或空槽并返回 NoOwnedCapacity。稳定的 partial 目标不重复提交相同材质，但保留后续空槽恢复机会。错误通过 OverlayResult 返回，后续从完整逻辑目标重新 reconcile。
 
 Runtime 注入 `OverlayDependencies::textureExists`，通过 Skyrim 资源流检查虚拟路径，遵循 MO2 覆盖与 BSA。适配器在槽位清理、创建覆盖层和材质写入之前，检查默认 diffuse 及本次启用目标的 diffuse；无法读取则返回 `Failed/MissingTexture` 和 `resourcePath`，不执行本次写入。可选 normal/specular 使用同一资源查询。此检查不验证 DDS 解码或 GPU 渲染。容量和资源诊断携带区域、已应用/请求数量、实际域容量及失败路径；相同 actor/region 的相同诊断类型与路径每五秒最多上报一次，类型或路径变化立即上报。核心逻辑的层数上限单独显示，不能解释为 RaceMenu 容量不足。
 
-Effects 根据唯一 Core 派生值 reconcile 本插件 Spell；关闭效果会移除自身已应用的 Spell。其已应用值缓存只用于减少重复调用，load 后可丢弃并从 Core 重建。业务/菜单不直接读 `HasSpell` 作为层状态。
+Effects 根据唯一 Core 派生值直接调用 `TESObjectREFR::ApplyEffectShader`。每次 reconcile 枚举实际着色实例，只处理同一目标且 EFSH 属于本插件 26 组资源的实例；停止时标记精确匹配实例结束，不调用会清理其他插件效果的全局停止 API。期望组合、已应用修订和实际实例分别核验，丢失、重复或组合不符时修复。旧版 `HasSpell`/`RemoveSpell` 仅服务迁移，不作为业务状态来源；新路径不调用 `AddSpell`。
+
+装备事件只将 FormID 与 epoch 入队，在 pump 中失效该角色的 Effects 并重新绑定，不重建 RaceMenu 覆盖层；收到 SKSE NiNodeUpdateEvent 时沿用 3D 视觉失效路径。效果目标按角色合并，在批次末消费最新值，避免首次 3D 就绪和多个装备通知重复播放。环境 Advance 未改变 actor revision 时不提交效果目标，仍处理时间、区域与 deadline。正常实例不做固定周期巡检；状态变化、装备或视觉失效、读档恢复及手动刷新触发 live 核验，失败仍遵守两秒冷却。SKSE 通知不保证覆盖所有引擎内部的 root 替换；没有通知的外部静默变化会在下一次相关触发时修复。co-save 只保存 Core 层状态及计时，着色实例和原生指针不持久化；读档从 Core 重建。实例实际覆盖哪些装备、换装后几何绑定及停止时序需游戏内验收。
 
 ## 9. Scheduler 与 Environment（S6）
 

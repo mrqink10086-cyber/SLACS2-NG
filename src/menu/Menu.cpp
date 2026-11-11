@@ -290,20 +290,20 @@ namespace slacs
 			api().checkbox("所有目标使用 Mega 贴图", &state.draft.megaCumForAll);
 			api().checkbox("允许女性来源的体液", &state.draft.allowFemaleFluid);
 			TextDisabled("自动目标支持全部成年女性 NPC，无需随从身份。");
-			api().checkbox("启用体液效果法术", &state.draft.effectsEnabled);
+			api().checkbox("启用装备着色效果", &state.draft.effectsEnabled);
 
 			api().beginDisabled(!state.draft.effectsEnabled);
 			int level1 = state.draft.spellLevel1Threshold;
 			int level2 = state.draft.spellLevel2Threshold;
 			api().setNextItemWidth(260.0F);
-			if (api().sliderInt("一级法术阈值（层）", &level1, 1, 5, "%d 层", 0)) {
+			if (api().sliderInt("一级效果阈值（层）", &level1, 1, 5, "%d 层", 0)) {
 				state.draft.spellLevel1Threshold = static_cast<std::uint8_t>(level1);
 				if (state.draft.spellLevel2Threshold < state.draft.spellLevel1Threshold) {
 					state.draft.spellLevel2Threshold = state.draft.spellLevel1Threshold;
 				}
 			}
 			api().setNextItemWidth(260.0F);
-			if (api().sliderInt("二级法术阈值（层）", &level2, 1, 5, "%d 层", 0)) {
+			if (api().sliderInt("二级效果阈值（层）", &level2, 1, 5, "%d 层", 0)) {
 				state.draft.spellLevel2Threshold = static_cast<std::uint8_t>(level2);
 			}
 			api().endDisabled();

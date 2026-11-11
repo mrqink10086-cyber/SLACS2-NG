@@ -7,14 +7,14 @@ SLACS2 NG 是 SLACS 2 的原生 C++ 重写：把原来由 Papyrus、StorageUtil�
 - 菜单改用 SKSE Menu Framework，单一入口、同页分组的全中文界面。
 - 面向新档设计，存档格式为版本化 co-save；全局配置在 `Data/SKSE/Plugins/SLACS2NG.json`。
 
-当前版本 **1.0.6**。修复旧贴图路径和默认空槽的识别；提交前通过游戏资源系统检查贴图，无法读取时在菜单显示具体路径。容量诊断显示区域、实际应用数和域总容量，并区分逻辑层数上限。**蓝紫缺贴图的实机根因尚未确认**，宿主检查不代替游戏渲染验收。
+当前版本 **1.0.7**。装备视觉由 C++ 直接播放 EFSH，使用现有 0–26 组合索引，迁移时清除旧版效果法术。完整包补齐之前遗漏的 26 张装备效果贴图，并按 ESP 的 EFSH 记录验证资源引用；换装、读档和 NPC 实际渲染仍需游戏内验收。
 
 ## 功能
 
 - **七区域、五层**：Face、BodyVaginal、BodyAnal、BodyBreast、BodyLegs、Hands、Feet，每区默认五层，LIFO 移除。
 - **唯一自动加层入口**：P+ 的 `SexlabOrgasmSeparate`，经 `SLACS_Main` 薄桥把 `(sourceActor, tid)` 交给 native；`HookAnimationStart/End` 只维护过程上下文。
 - **衰减与清洗**：自然衰减补算睡眠、等待、快速旅行经过的游戏时间；雨水只累计已观测到的室外降雨；游泳立即清洗；120 活动秒整体清洗（暂停/菜单冻结期间不累计）。
-- **26 个效果组合**：口腔 × 阴道 × 肛门 × 等级（0/1/2），FormID 从 ESP 解析，索引 0 为关闭占位。
+- **26 个效果组合**：口腔、阴道和肛门各有 0/1/2 级，组合索引为 `anal*9 + vaginal*3 + oral`，0 表示关闭。C++ 从 ESP 解析 EFSH，直接播放并核验实例；不通过添加法术维持视觉。
 - **RaceMenu 覆盖层**：通过 `skee64` 接口读取实际加载的 INI 容量，自动分配空槽与本插件已有槽，保留其他模组占用；槽位不足时保留逻辑层并限频重试。
 - **中文设置菜单**：打开“体液覆盖/设置”，在同页展开覆盖层、衰减清洗及角色管理分组，统一应用或保存。配置跨存档共用；菜单只读运行时快照并提交值命令，动作携带会话 epoch，换档后旧动作被拒绝。
 - **NPC 支持**：自动过程不要求玩家或随从在场；成年女性 NPC 可接收覆盖层。菜单点击“刷新已加载 NPC”后选择角色，或面向角色后打开菜单并点击“选择准星 NPC”。候选列表按需刷新，常规 pump 不枚举场景角色。
@@ -44,7 +44,7 @@ xmake f -p windows -a x64 --toolchain=msvc -y
 xmake build -y "SLACS2 NG"
 ```
 
-`after_build` 会自动执行 `tools/package.py`：编译 Papyrus 桥、核对 ESP/VMAD/264 张贴图/字体缺字/菜单字符串/1170 运行时元数据，并把 DLL 放进 `package/Data`。
+`after_build` 会自动执行 `tools/package.py`：编译 Papyrus 桥，校验 ESP/VMAD、必需的区域 diffuse、ESP 引用的装备效果贴图、字体缺字、菜单字符串和 1170 运行时元数据，并把 DLL 放进 `package/Data`。区域 normal/specular 按 profile 作为可选通道检查；EFSH 的非空贴图引用缺失会阻止打包。完整包交付 264 张区域贴图及 26 张装备效果贴图。
 
 宿主检查（不启动游戏）：
 
@@ -52,7 +52,8 @@ xmake build -y "SLACS2 NG"
 foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7_checks",
                "slacs_s5_persistence_checks","slacs_s8_checks","slacs_s9_checks",
                "slacs_overlay_checks","slacs_effects_checks","slacs_pplus_checks",
-               "slacs_actor_candidates_checks","slacs_retry_schedule_checks") {
+               "slacs_actor_candidates_checks","slacs_retry_schedule_checks",
+               "slacs_background_pump_checks","slacs_pplus_callback_checks") {
   xmake build -y $t
   & "build/windows/x64/release/$t.exe"
 }
@@ -64,7 +65,7 @@ foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7
 py tools/release.py
 ```
 
-输出为 `artifacts/SLACS2NG-1.0.6/`、同名 ZIP 和文件清单。
+输出为 `artifacts/SLACS2NG-1.0.7/`、同名 ZIP 和文件清单。
 
 ## 安装
 
@@ -85,7 +86,7 @@ src/papyrus      native 绑定与 P+ 事件桥
 src/integration  P+ 适配、RaceMenu 覆盖层、效果、3D/引擎查询
 src/menu         快照发布与同页分组菜单
 src/persistence  co-save 编解码
-tests            十二组宿主检查
+tests            十四组宿主检查
 tools            package.py / release.py / clean_esp.py / verify_*.py
 docs             PLAN、INTERFACES、SESSION-01..05、AUDIT、RELEASE-NOTES
 ```
@@ -102,9 +103,9 @@ docs             PLAN、INTERFACES、SESSION-01..05、AUDIT、RELEASE-NOTES
 
 | 项目 | 状态 |
 | --- | --- |
-| DLL / PEX / ESP / 264 贴图 / 字体 / 菜单资源构建 | 构建完成，`tools/package.py` 全部校验通过 |
-| 十二组宿主检查（逻辑、调度、序列化、菜单、时钟、适配器、NPC 候选、重试） | 全部通过 |
-| LLVM 20 AddressSanitizer | 历史检查结果见审计文档；本版宿主检查不能替代游戏内验证 |
+| DLL / PEX / ESP / 290 贴图 / 字体 / 菜单资源构建 | 构建通过；已校验必需区域 diffuse 与 ESP 引用的装备效果贴图，可选通道另行检查 |
+| 十四组宿主检查（逻辑、调度、序列化、菜单、时钟、适配器、NPC 候选、重试、后台任务和 P+ 回调） | 全部通过 |
+| LLVM 20 AddressSanitizer | 本版原生 EFSH 适配器检查通过，启用栈返回后访问检测；历史检查见审计文档 |
 | 菜单动作贯通 UI → Runtime → Core → 外观/效果 | 待游戏验收 |
 | 读档、换档、tid 复用、异步取消 | 待游戏验收 |
 | 七区域覆盖层、26 效果、与 SlaveTatsNG 共存 | 待游戏验收 |

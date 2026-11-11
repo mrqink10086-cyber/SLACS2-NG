@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-"""Report the overlay texture profiles shipped in package/Data.
-
-The diffuse maps are required for every configured profile. Normal and
-specular maps are optional by design: the RaceMenu adapter clears a channel
-when the file is absent, so a Mega install without specular maps remains
-valid. UBE is reported as missing because the current package has no
-textures/slacs2_ube tree.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
+import struct
+
+from clean_esp import HEADER, u32
 
 ROOT = Path(__file__).resolve().parent.parent
 TEXTURES = ROOT / "package" / "Data" / "Textures" / "slacs2"
@@ -25,6 +19,50 @@ PROFILES = {
     "Hands": ("Handjob", "hands", 4, False, False),
     "Feet": ("Footjob", "feet", 4, False, False),
 }
+
+
+def effect_shader_texture_paths(plugin: bytes) -> set[str]:
+    paths: set[str] = set()
+    position = 0
+    while position < len(plugin):
+        kind = plugin[position : position + 4]
+        size = u32(plugin, position + 4)
+        if kind != b"GRUP":
+            position += HEADER + size
+            continue
+        end = position + size
+        if plugin[position + 8 : position + 12] == b"EFSH":
+            cursor = position + HEADER
+            while cursor < end:
+                record_end = cursor + HEADER + u32(plugin, cursor + 4)
+                if record_end > end or u32(plugin, cursor + 8) & 0x00040000:
+                    raise ValueError("invalid or compressed EFSH record")
+                offset = cursor + HEADER
+                while offset < record_end:
+                    sub = plugin[offset : offset + 4]
+                    length = struct.unpack_from("<H", plugin, offset + 4)[0]
+                    value_end = offset + 6 + length
+                    if value_end > record_end:
+                        raise ValueError("invalid EFSH subrecord")
+                    if sub in {b"ICON", b"ICO2", b"NAM7", b"NAM8", b"NAM9"}:
+                        path = plugin[offset + 6 : value_end].rstrip(b"\0").decode("utf-8")
+                        if path:
+                            paths.add(path.replace("\\", "/"))
+                    offset = value_end
+                cursor = record_end
+        position = end
+    return paths
+
+
+def verify_effect_shader_textures(package: Path) -> int:
+    paths = effect_shader_texture_paths((package / "SLACS_2_Plus_SCO.esp").read_bytes())
+    if not paths:
+        raise SystemExit("ESP has no effect-shader texture references")
+    missing = [path for path in sorted(paths) if not (package / "Textures" / path).is_file()]
+    if missing:
+        raise SystemExit("missing required effect-shader textures:\n  " + "\n  ".join(missing))
+    print(f"effect-shader textures: {len(paths)} ESP-referenced files")
+    return len(paths)
 
 
 def verify_textures() -> tuple[int, int, int]:
@@ -55,6 +93,7 @@ def verify_textures() -> tuple[int, int, int]:
     if missing:
         raise SystemExit("missing required overlay textures:\n  " + "\n  ".join(missing))
 
+    verify_effect_shader_textures(ROOT / "package" / "Data")
     ube = ROOT / "package" / "Data" / "Textures" / "slacs2_ube"
     print(f"UBE profile: {'available' if ube.is_dir() else 'missing resources (expected)'}")
     return total, normal_count, specular_count

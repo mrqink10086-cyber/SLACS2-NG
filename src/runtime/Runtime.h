@@ -33,6 +33,8 @@
 
 namespace slacs
 {
+	class RuntimeEventSink;
+
 	class Runtime
 	{
 	public:
@@ -97,6 +99,8 @@ namespace slacs
 		void processDirtyVisuals(PumpReport& a_report, std::size_t a_maxTargets);
 		void processDirtyEffects(PumpReport& a_report, std::size_t a_maxTargets);
 		void enqueueCurrentTarget(ActorId a_actor, Region a_region, bool a_resetRetry);
+		void enqueueCurrentEffectTarget(ActorId a_actor, bool a_resetRetry);
+		void markActor3DReady(ActorId a_actor);
 		void invalidateActorVisuals(ActorId a_actor, VisualInvalidation a_reason, bool a_resetRetry = false);
 		void processQuestRetry();
 		void scheduleQuestRetry();
@@ -138,6 +142,7 @@ namespace slacs
 		std::mutex stagingMutex_;
 		Ingress ingress_;
 		BackgroundPump background_;
+		std::unique_ptr<RuntimeEventSink> eventSink_;
 		QuestBridge questBridge_;
 		ActorRegistry actorRegistry_;
 		PPlusAdapter pplus_;
