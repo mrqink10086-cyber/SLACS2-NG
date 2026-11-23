@@ -194,7 +194,7 @@ OnPPlusEnd(int tid, bool hasPlayer)    → NotifySceneEnd(tid, hasPlayer)
 
 Papyrus Event 不维护层、参与者列表、定时器或业务状态。Native orgasm 入口只检查 `sourceActor` 非空并复制 `FormId`，取当前 epoch 后调用 `Ingress::postOrgasm`；sequence 在队列锁内分配。不在 VM 回调线程解析 ActorHandle、判断 actor 状态、查 P+ 或访问 3D。Runtime 在游戏执行阶段通过 ActorRegistry 验证 Form 是否为有效 Actor。Start/End 同样复制 tid/hasPlayer 后入队。空 Form 不入队并记一条限频诊断。
 
-注册完成后才调用 Quest 的 `RegisterEvents`；新游戏与成功读档在 Quest/VM 可调用后重订阅。加载开始关闭旧 session ingress、递增 epoch、取消本 epoch 查询/deadline；`UnregisterEvents` 只注销本 Quest 的三项订阅。
+Native 函数绑定后，新游戏与成功读档会查找实际绑定到 `SLACS_Main_Q` 的 `SLACS_Main` 对象，并调用 `RegisterEvents`。脚本先清理本 Quest 的旧订阅，登记三项 P+ 事件后返回 `True`；Runtime 收到该返回值才记录订阅成功，派发成功不算完成。加载开始关闭旧 session ingress、递增 epoch、取消本 epoch 查询/deadline；上一会话的迟到返回值不会确认新会话。
 
 ## 6. PPlusAdapter 异步契约（S3）
 
@@ -224,14 +224,14 @@ std::uint32_t PPlusAdapter::poll(SteadyTime now, std::size_t maxCallbacks);
 | `PPlusFailure::code` | 使用上表 `PPlusFailureCode`；附 requestId/epoch/tid/sequence 供诊断。 |
 | 完成 | 每个 Accepted request 产生一个 `PPlusCompleted` 终态；callback 只更新 adapter 请求状态及持有的返回 Variable，`poll` 在游戏执行阶段绑定参与者、汇总并入队。 |
 | 取消 | `cancel` 幂等；发一个 `Cancelled` 终态。Runtime 先关闭/递增 epoch，再调用 `cancelEpoch(oldEpoch)`；终结后的旧 VM callback 丢弃。 |
-| 晚到结果 | Runtime 先检查 requestId、epoch、tid 活动状态；不匹配时丢弃，不能触发加层。 |
+| 晚到结果 | Runtime 先检查 epoch，再核对 tid 与已受理的 ingress sequence。Scene End 后仍接收已受理查询的结果；同 tid 新 Start 或会话重置后，旧结果不能触发加层。 |
 | 合法重复高潮 | 同一 tid/source 的不同 ingress sequence 是不同业务事件；不得按 actor/tid 或时间窗合并。 |
 
 adapter 在 `begin` 时为终态预留 Ingress 容量，容量不足同步拒绝；取消和正常完成竞争时只交付一次。Runtime 以同 tid 的 ingress sequence 建立有序待处理队列：较晚查询先完成时缓存结果，等较早请求终结后再交给 Core。拒绝启动的请求不占等待槽，不同 tid 独立推进。首版查询超时固定为 5 个 steady 秒；`poll` 同时收取 VM 返回值和处理超时。
 
 VM callback 更新状态、释放请求锁后，通过线程安全的 wake 通知 BackgroundPump；唤醒仅安排游戏执行阶段的任务，不在 callback 线程 dispatch 下一次 VM 调用。Positions 返回的 Variable 由请求持有，在下一次游戏线程 poll 中解析 Actor、取得拥有型句柄并读取 FormID。CallbackGate 覆盖通知期间的 adapter 生命周期，shutdown 关闭入口并释放待处理请求。等待请求仍保留 50ms 轮询，负责超时、取消及通知遗漏后的推进。
 
-Runtime 将成功 outcome 翻译成 `CoreOp::AddLayers`；失败记录可诊断原因，不改变逻辑层。Scene End、读档、新游戏、P+ 查询超时都取消未完成请求。P+ 多个 VM callback 不组成同步快照；如完整结果不再可得，返回失败，不拼接跨请求数据。
+Runtime 将成功 outcome 翻译成 `CoreOp::AddLayers`；失败记录可诊断原因，不改变逻辑层。Scene End 不再接收新的查询，但已受理的查询可以在原有时限内收尾；同 tid 新 Start、读档、新游戏取消旧请求。P+ 多个 VM callback 不组成同步快照，场景结束或推进后读到的数据可能已变化；查询失败时不触发加层。
 
 ## 7. Settings 与 Core（S1/S4/S6/S7）
 

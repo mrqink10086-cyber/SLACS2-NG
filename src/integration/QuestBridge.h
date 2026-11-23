@@ -2,6 +2,8 @@
 
 #include <RE/Skyrim.h>
 
+#include <atomic>
+#include <memory>
 #include <mutex>
 
 namespace slacs
@@ -9,18 +11,28 @@ namespace slacs
 	class QuestBridge
 	{
 	public:
-		bool trySubscribe();
-		void unsubscribe();
+		enum class Status
+		{
+			QuestUnavailable,
+			VmUnavailable,
+			ScriptNotBound,
+			DispatchRejected,
+			AwaitingConfirmation,
+			ConfirmationFailed,
+			Subscribed,
+		};
+
+		Status trySubscribe();
 		void invalidate();
 		void reset();
-		[[nodiscard]] bool subscribed() const;
 
 	private:
-		bool dispatchLocked(const char* a_function);
-		bool ensureQuestLocked();
+		struct RegistrationCallback;
+		Status dispatchLocked(const char* a_function,
+			RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor>& a_callback);
 
-		mutable std::mutex mutex_;
+		std::mutex mutex_;
 		RE::TESQuest* quest_{};
-		bool subscribed_{};
+		std::shared_ptr<std::atomic<Status>> registration_;
 	};
 }

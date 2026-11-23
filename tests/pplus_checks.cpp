@@ -1,4 +1,5 @@
 #include "integration/PPlusMapping.h"
+#include "runtime/PPlusScenes.h"
 
 #include <array>
 #include <iostream>
@@ -15,10 +16,51 @@ namespace
 			std::cerr << "FAIL: " << a_message << '\n';
 		}
 	}
+
+	void CheckSceneEndAndTidReuse()
+	{
+		PPlusScenes scenes;
+		constexpr Tid tid = 3;
+		constexpr SessionEpoch epoch = 1;
+		std::vector<RequestId> dispatched;
+		const auto emit = [&](const PPlusCompleted& completion) { dispatched.push_back(completion.requestId); };
+		const auto result = [&](IngressSequence sequence) {
+			ResolvedOrgasm outcome{};
+			outcome.tid = tid;
+			outcome.epoch = epoch;
+			outcome.sequence = sequence;
+			return PPlusCompleted{ sequence, epoch, std::move(outcome) };
+		};
+
+		Expect(scenes.start(tid, epoch).admitted && scenes.isActive(tid, epoch), "Start opens the scene");
+		scenes.trackAccepted(tid, 10);
+		scenes.trackAccepted(tid, 11);
+		Expect(scenes.end(tid) && !scenes.isActive(tid, epoch), "End closes admission for new requests");
+		Expect(scenes.complete(tid, 11, result(11), emit) && dispatched.empty(), "End preserves ordering for in-flight completions");
+		Expect(scenes.complete(tid, 10, result(10), emit) && dispatched == std::vector<RequestId>{ 10, 11 },
+			"queries accepted before End still commit in ingress order");
+		Expect(!scenes.complete(tid, 11, result(11), emit), "a completion cannot commit twice");
+
+		Expect(!scenes.start(tid, epoch).replaced, "completed scenes retain no pending entries");
+		scenes.trackAccepted(tid, 12);
+		scenes.end(tid);
+		const auto next = scenes.start(tid, epoch);
+		Expect(next.admitted && next.replaced, "Start on a reused tid invalidates queries still draining");
+		scenes.trackAccepted(tid, 13);
+		Expect(!scenes.complete(tid, 12, result(12), emit), "an old result cannot reach a new scene with the same tid");
+		Expect(scenes.complete(tid, 13, result(13), emit) && dispatched == std::vector<RequestId>{ 10, 11, 13 },
+			"a new scene can commit its own result on the reused tid");
+
+		scenes.trackAccepted(tid, 14);
+		scenes.end(tid);
+		scenes.clear();
+		Expect(!scenes.complete(tid, 14, result(14), emit), "a session reset drops old queries");
+	}
 }
 
 int main()
 {
+	CheckSceneEndAndTidReuse();
 	Expect(ShouldIncludePPlusTarget(true, 1, true), "male source can target an adult female NPC without player or follower status");
 	Expect(ShouldIncludePPlusTarget(true, 2, true), "male source can target a futa NPC");
 	Expect(ShouldIncludePPlusTarget(true, 0, false) && ShouldIncludePPlusTarget(true, 3, false),

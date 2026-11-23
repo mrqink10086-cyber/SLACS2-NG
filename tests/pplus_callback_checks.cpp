@@ -1,4 +1,5 @@
 #include "integration/PPlusAdapter.h"
+#include "integration/QuestBridge.h"
 
 #include <RE/Skyrim.h>
 
@@ -40,6 +41,33 @@ namespace
 	public:
 		RE::BSScript::ObjectHandlePolicy* GetObjectHandlePolicy() override { return &policy; }
 
+		bool FindBoundObject(RE::VMHandle a_handle, const char* a_class,
+			RE::BSTSmartPointer<RE::BSScript::Object>& a_object) const override
+		{
+			Check(a_handle == 77 && std::string_view{ a_class } == "SLACS_Main");
+			if (!questScriptBound) {
+				return false;
+			}
+			a_object = std::make_shared<RE::BSScript::Object>(a_handle);
+			return true;
+		}
+
+		bool DispatchMethodCall1(RE::BSTSmartPointer<RE::BSScript::Object>& a_object,
+			const RE::BSFixedString& a_function, RE::BSScript::IFunctionArguments* a_args,
+			Callback& a_callback) override
+		{
+			Check(a_object && a_object->GetHandle() == 77);
+			questCalls.emplace_back(a_function.c_str());
+			if (!acceptQuestCalls) {
+				return false;
+			}
+			delete a_args;
+			if (a_callback) {
+				callbacks.push_back(a_callback);
+			}
+			return true;
+		}
+
 		bool DispatchMethodCall2(
 			RE::VMHandle,
 			const RE::BSFixedString&,
@@ -62,6 +90,9 @@ namespace
 
 		RE::BSScript::ObjectHandlePolicy policy;
 		std::vector<Callback> callbacks;
+		std::vector<std::string> questCalls;
+		bool questScriptBound{};
+		bool acceptQuestCalls{ true };
 	};
 
 	struct Fixture
@@ -211,6 +242,40 @@ namespace
 		Check(fixture.posted.empty());
 		Check(fixture.releases == 1, "late callback cannot release reservation twice");
 	}
+
+	void CheckQuestSubscriptionRequiresPapyrusConfirmation()
+	{
+		using Status = QuestBridge::Status;
+		Fixture fixture;
+		QuestBridge bridge;
+		fixture.dataHandler.quest = nullptr;
+		Check(bridge.trySubscribe() == Status::QuestUnavailable);
+		fixture.dataHandler.quest = &fixture.frameworkQuest;
+		Check(bridge.trySubscribe() == Status::ScriptNotBound);
+		Check(fixture.vm.questCalls.empty());
+
+		fixture.vm.questScriptBound = true;
+		fixture.vm.acceptQuestCalls = false;
+		Check(bridge.trySubscribe() == Status::DispatchRejected);
+		fixture.vm.questCalls.clear();
+		fixture.vm.acceptQuestCalls = true;
+		Check(bridge.trySubscribe() == Status::AwaitingConfirmation);
+		Check(bridge.trySubscribe() == Status::AwaitingConfirmation);
+		Check(fixture.vm.questCalls == std::vector<std::string>{ "RegisterEvents" });
+		(*fixture.vm.takeCallback())(RE::BSScript::Variable{});
+		Check(bridge.trySubscribe() == Status::ConfirmationFailed, "old void RegisterEvents cannot confirm registration");
+
+		Check(bridge.trySubscribe() == Status::AwaitingConfirmation);
+		auto previousSession = fixture.vm.takeCallback();
+		bridge.invalidate();
+		Check(fixture.vm.questCalls.back() == "UnregisterEvents");
+		Check(bridge.trySubscribe() == Status::AwaitingConfirmation);
+		(*previousSession)(RE::BSScript::Variable::BoolResult(true));
+		Check(bridge.trySubscribe() == Status::AwaitingConfirmation, "late callback cannot confirm another session");
+		(*fixture.vm.takeCallback())(RE::BSScript::Variable::BoolResult(true));
+		Check(bridge.trySubscribe() == Status::Subscribed);
+		Check(fixture.vm.callbacks.empty());
+	}
 }
 
 namespace slacs
@@ -225,5 +290,6 @@ int main()
 	CheckCallbackCopiesVariableAndDefersActorAccessToPoll();
 	CheckUnavailableParticipants();
 	CheckShutdownMakesLateCallbackNoOpAndReleasesOnce();
+	CheckQuestSubscriptionRequiresPapyrusConfirmation();
 	std::cout << "SLACS2 NG PPlus callback checks passed\n";
 }

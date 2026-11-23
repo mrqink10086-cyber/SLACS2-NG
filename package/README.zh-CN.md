@@ -31,6 +31,8 @@
 
 从旧合包升级时，先安装两包，再停用旧合包，避免旧 DLL 或脚本覆盖新文件。旧完整包也遗漏了 `Textures/slacs2/clothes/` 的 26 张装备效果贴图，所以不能只依赖旧纹理；安装纹理包 1.0 后应同时具备七区域贴图和 `clothes` 目录。
 
+若菜单测试能显示贴图，但 P+ 场景中没有效果，先在 MO2 右侧「数据」确认 `SKSE/Plugins/SLACS2 NG.dll`、`SLACS_2_Plus_SCO.esp` 和 `Scripts/SLACS_Main.pex` 都来自同一个 NG Main 包。重新启动游戏读档后复现一次，并保留 `Documents/My Games/Skyrim Special Edition/SKSE/SLACS2 NG.log`。`Quest events subscribed` 表示脚本已完成注册；`Scene start tid=`、`Orgasm query accepted` 和 `P+ query completed` 分别表示收到场景开始、开始查询、查询完成。若报告问题，请附该次完整日志和 P+ 版本。
+
 ## 配置
 
 全局配置：`Data/SKSE/Plugins/SLACS2NG.json`，schemaVersion 1，UTF-8。

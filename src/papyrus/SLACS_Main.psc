@@ -1,10 +1,11 @@
 ScriptName SLACS_Main extends Quest
 
-Function RegisterEvents()
+Bool Function RegisterEvents()
     UnregisterEvents()
     RegisterForModEvent("SexlabOrgasmSeparate", "OnPPlusOrgasm")
     RegisterForModEvent("HookAnimationStart", "OnPPlusStart")
     RegisterForModEvent("HookAnimationEnd", "OnPPlusEnd")
+    Return True
 EndFunction
 
 Function UnregisterEvents()

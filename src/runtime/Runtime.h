@@ -13,6 +13,7 @@
 #include "runtime/BackgroundPump.h"
 #include "runtime/Environment.h"
 #include "runtime/Ingress.h"
+#include "runtime/PPlusScenes.h"
 #include "runtime/Scheduler.h"
 #include "runtime/RoundRobin.h"
 #include "runtime/RetrySchedule.h"
@@ -25,10 +26,8 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <set>
 #include <string>
 #include <tuple>
-#include <unordered_set>
 #include <unordered_map>
 
 namespace slacs
@@ -65,18 +64,6 @@ namespace slacs
 		void saveTo(SKSE::SerializationInterface& a_intfc) const;
 
 	private:
-		struct SceneContext
-		{
-			bool hasPlayer{};
-			SessionEpoch epoch{};
-		};
-
-		struct TidOrderState
-		{
-			std::set<IngressSequence> outstanding;
-			std::map<IngressSequence, PPlusCompleted> completed;
-		};
-
 		Runtime();
 		~Runtime();
 		void shutdown();
@@ -158,8 +145,7 @@ namespace slacs
 		std::map<std::tuple<ActorId, DeadlineKind, std::optional<Region>>, DeadlineId> deadlineIds_;
 		DeadlineId nextDeadlineId_{ 1 };
 		SessionEpoch stagingEpoch_{};
-		std::unordered_map<Tid, SceneContext> sceneTids_;
-		std::unordered_map<Tid, TidOrderState> tidOrder_;
+		PPlusScenes pplusScenes_;
 		std::map<std::uint64_t, RegionTarget> dirtyVisuals_;
 		std::map<ActorId, SpellTarget> dirtyEffects_;
 		RetrySchedule<std::uint64_t> dirtyVisualRetries_;

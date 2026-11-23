@@ -460,8 +460,7 @@ namespace slacs
 		nextQuestRetry_ = {};
 		questBridge_.reset();
 		actorRegistry_.reset(epoch());
-		sceneTids_.clear();
-		tidOrder_.clear();
+		pplusScenes_.clear();
 		dirtyVisuals_.clear();
 		dirtyEffects_.clear();
 		dirtyVisualRetries_.clear();
@@ -1258,8 +1257,7 @@ namespace slacs
 			a_report.diagnostics.push_back(diagnostic);
 			return;
 		}
-		const auto scene = sceneTids_.find(a_command.tid);
-		if (scene == sceneTids_.end() || scene->second.epoch != a_command.epoch) {
+		if (!pplusScenes_.isActive(a_command.tid, a_command.epoch)) {
 			RuntimeDiagnostic diagnostic{};
 			diagnostic.module = RuntimeModule::PPlus;
 			diagnostic.code = RuntimeDiagnosticCode::QueryFailed;
@@ -1297,7 +1295,7 @@ namespace slacs
 		const auto start = pplus_.begin(query);
 		if (start == QueryStart::Accepted) {
 			requestStarted_[query.requestId] = std::chrono::steady_clock::now();
-			tidOrder_[a_command.tid].outstanding.insert(a_command.sequence);
+			pplusScenes_.trackAccepted(a_command.tid, a_command.sequence);
 			++orgasmsAccepted_;
 			background_.requestAfter(std::chrono::milliseconds{ 5200 });
 			logs::info(
@@ -1332,36 +1330,22 @@ namespace slacs
 			return;
 		}
 		if (a_command.phase == ScenePhase::Start) {
-			const auto [it, inserted] = sceneTids_.try_emplace(
-				a_command.tid,
-				SceneContext{ a_command.hasPlayer, a_command.epoch });
-			if (!inserted) {
-				// P+ reuses animation tids. Results from the previous scene must
-				// never commit into the new one.
+			const auto start = pplusScenes_.start(a_command.tid, a_command.epoch);
+			if (start.replaced) {
 				pplus_.cancelTid(a_command.tid, a_command.epoch);
-				tidOrder_.erase(a_command.tid);
-				it->second = SceneContext{ a_command.hasPlayer, a_command.epoch };
-				logs::warn("Scene start repeated tid={}", a_command.tid);
-			} else if (sceneTids_.size() > 256) {
-				sceneTids_.erase(it);
+				logs::warn("Scene start reused tid={}", a_command.tid);
+			}
+			if (!start.admitted) {
 				logs::warn("Scene start ignored, tid capacity reached");
-			} else {
-				++sceneStarts_;
-				logs::info("Scene start tid={} hasPlayer={} total={}", a_command.tid, a_command.hasPlayer, sceneStarts_);
+				return;
 			}
+			++sceneStarts_;
+			logs::info("Scene start tid={} hasPlayer={} total={}", a_command.tid, a_command.hasPlayer, sceneStarts_);
+		} else if (pplusScenes_.end(a_command.tid)) {
+			++sceneEnds_;
+			logs::info("Scene end tid={} hasPlayer={} total={}", a_command.tid, a_command.hasPlayer, sceneEnds_);
 		} else {
-			pplus_.cancelTid(a_command.tid, a_command.epoch);
-			background_.request();
-			// Drop ordering state for this scene. A completion that is still in
-			// flight will be rejected as unknown rather than adding layers after
-			// the scene ended. Completions processed before this End remain valid.
-			tidOrder_.erase(a_command.tid);
-			if (sceneTids_.erase(a_command.tid) == 0) {
-				logs::warn("Scene end for unknown tid={}", a_command.tid);
-			} else {
-				++sceneEnds_;
-				logs::info("Scene end tid={} hasPlayer={} total={}", a_command.tid, a_command.hasPlayer, sceneEnds_);
-			}
+			logs::warn("Scene end for unknown tid={}", a_command.tid);
 		}
 	}
 
@@ -1385,8 +1369,9 @@ namespace slacs
 			return;
 		}
 
-		auto found = tidOrder_.find(tid);
-		if (found == tidOrder_.end() || !found->second.outstanding.contains(sequence)) {
+		if (!pplusScenes_.complete(tid, sequence, a_command, [this, &a_report](const auto& completion) {
+				dispatchPPlusCompletion(completion, a_report);
+			})) {
 			RuntimeDiagnostic diagnostic{};
 			diagnostic.module = RuntimeModule::PPlus;
 			diagnostic.code = RuntimeDiagnosticCode::QueryFailed;
@@ -1399,24 +1384,6 @@ namespace slacs
 				a_command.requestId,
 				tid,
 				sequence);
-			return;
-		}
-
-		auto& order = found->second;
-		order.completed.emplace(sequence, a_command);
-		while (!order.outstanding.empty()) {
-			const auto expected = *order.outstanding.begin();
-			auto ready = order.completed.find(expected);
-			if (ready == order.completed.end()) {
-				break;
-			}
-			PPlusCompleted completion = std::move(ready->second);
-			order.completed.erase(ready);
-			order.outstanding.erase(order.outstanding.begin());
-			dispatchPPlusCompletion(completion, a_report);
-		}
-		if (order.outstanding.empty() && order.completed.empty()) {
-			tidOrder_.erase(found);
 		}
 	}
 
@@ -1461,7 +1428,8 @@ namespace slacs
 			diagnostic.tid = failure->tid;
 			diagnostic.sequence = failure->sequence;
 			a_report.diagnostics.push_back(diagnostic);
-			logs::warn("P+ query failed request={} code={}", a_command.requestId, static_cast<int>(failure->code));
+			logs::warn("P+ query failed request={} tid={} sequence={} code={}",
+				a_command.requestId, failure->tid, failure->sequence, static_cast<int>(failure->code));
 		}
 	}
 
@@ -1964,18 +1932,40 @@ namespace slacs
 			scheduler_.upsertSteady(kQuestRetryDeadlineId, nextQuestRetry_);
 			return;
 		}
-		if (questBridge_.trySubscribe()) {
+		using Status = QuestBridge::Status;
+		const auto status = questBridge_.trySubscribe();
+		const char* detail = "";
+		switch (status) {
+		case Status::Subscribed:
 			questRetryPending_ = false;
-			logs::info("Quest events subscribed");
+			logs::info("Quest events subscribed (SLACS_Main.RegisterEvents confirmed)");
 			return;
+		case Status::QuestUnavailable:
+			detail = "SLACS_Main_Q unavailable; check the active SLACS_2_Plus_SCO.esp";
+			break;
+		case Status::VmUnavailable:
+			detail = "Papyrus VM unavailable";
+			break;
+		case Status::ScriptNotBound:
+			detail = "SLACS_Main is not bound to SLACS_Main_Q; check the active ESP and Scripts/SLACS_Main.pex";
+			break;
+		case Status::DispatchRejected:
+			detail = "Papyrus rejected SLACS_Main.RegisterEvents; check the active Scripts/SLACS_Main.pex";
+			break;
+		case Status::AwaitingConfirmation:
+			detail = "waiting for SLACS_Main.RegisterEvents to finish";
+			break;
+		case Status::ConfirmationFailed:
+			detail = "SLACS_Main.RegisterEvents did not return true; check the active Scripts/SLACS_Main.pex";
+			break;
 		}
 		++questRetryAttempts_;
 		nextQuestRetry_ = now + std::chrono::milliseconds{ 500 };
 		if (questRetryAttempts_ >= 40) {
 			questRetryPending_ = false;
-			logs::error("Quest subscription unavailable after {} attempts", questRetryAttempts_);
-		} else if (questRetryAttempts_ == 1 || questRetryAttempts_ % 10 == 0) {
-			logs::warn("Quest subscription pending attempt={}", questRetryAttempts_);
+			logs::error("Quest subscription unavailable after {} attempts: {}", questRetryAttempts_, detail);
+		} else if (questRetryAttempts_ == 1 || questRetryAttempts_ % 10 == 0 || status == Status::ConfirmationFailed) {
+			logs::warn("Quest subscription pending attempt={}: {}", questRetryAttempts_, detail);
 		}
 		if (questRetryPending_) {
 			scheduler_.upsertSteady(kQuestRetryDeadlineId, nextQuestRetry_);

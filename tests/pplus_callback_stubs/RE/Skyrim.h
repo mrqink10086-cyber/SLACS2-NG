@@ -380,18 +380,25 @@ namespace RE
 			virtual ~IFunctionArguments() = default;
 		};
 
-		class ObjectHandlePolicy
-		{
-		public:
-			[[nodiscard]] VMHandle GetHandleForObject(FormType, TESQuest*) const { return 77; }
+	class ObjectHandlePolicy
+	{
+	public:
+		[[nodiscard]] VMHandle EmptyHandle() const { return 0; }
+		[[nodiscard]] VMHandle GetHandleForObject(FormType, TESQuest*) const { return 77; }
 		};
 
 		class IVirtualMachine
 		{
 		public:
-			virtual ~IVirtualMachine() = default;
-			virtual ObjectHandlePolicy* GetObjectHandlePolicy() = 0;
-			virtual bool DispatchMethodCall2(
+		virtual ~IVirtualMachine() = default;
+		virtual ObjectHandlePolicy* GetObjectHandlePolicy() = 0;
+		virtual bool FindBoundObject(VMHandle, const char*, BSTSmartPointer<Object>&) const = 0;
+		virtual bool DispatchMethodCall1(
+			BSTSmartPointer<Object>&,
+			const BSFixedString&,
+			IFunctionArguments*,
+			BSTSmartPointer<IStackCallbackFunctor>&) = 0;
+		virtual bool DispatchMethodCall2(
 				VMHandle,
 				const BSFixedString&,
 				const BSFixedString&,
