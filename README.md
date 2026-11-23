@@ -7,7 +7,7 @@ SLACS2 NG 是 SLACS 2 的原生 C++ 重写：把原来由 Papyrus、StorageUtil�
 - 菜单改用 SKSE Menu Framework，单一入口、同页分组的全中文界面。
 - 面向新档设计，存档格式为版本化 co-save；全局配置在 `Data/SKSE/Plugins/SLACS2NG.json`。
 
-当前程序版本 **1.0.7**，纹理包独立版本 **1.0**，**已有游戏实测反馈**：NPC 菜单测试加层与外观显示可用；脸部五层的视觉叠加异常正在调查。装备视觉由 C++ 直接播放 EFSH，使用现有 0–26 组合索引，迁移时清除旧版效果法术。纹理包补齐之前遗漏的 26 张装备效果贴图，并按 ESP 的 EFSH 记录验证资源引用。实测范围见 [游戏测试记录](docs/GAME-TEST-2026-11-11.zh-CN.md)。
+当前程序版本 **1.0.8**，纹理包独立版本 **1.0**，**已有游戏实测反馈**：NPC 菜单测试加层与外观显示可用；脸部五层的视觉叠加异常正在调查。装备视觉由 C++ 直接播放 EFSH，使用现有 0–26 组合索引，迁移时清除旧版效果法术。纹理包补齐之前遗漏的 26 张装备效果贴图，并按 ESP 的 EFSH 记录验证资源引用。实测范围见 [游戏测试记录](docs/GAME-TEST-2026-11-11.zh-CN.md)。
 
 ## 功能
 
@@ -65,7 +65,7 @@ foreach ($t in "slacs_s1_checks","slacs_s4_checks","slacs_s5s6_checks","slacs_s7
 py tools/release.py
 ```
 
-输出为 `artifacts/SLACS2NG-Main-1.0.7/` 及同名 ZIP。首次发布或纹理变化时生成纹理包：
+输出为 `artifacts/SLACS2NG-Main-1.0.8/` 及同名 ZIP。首次发布或纹理变化时生成纹理包：
 
 ```powershell
 py tools/release.py --component textures
@@ -76,7 +76,7 @@ py tools/release.py --component textures
 ## 安装
 
 1. 备齐上表依赖，确认游戏为 1.6.1170。
-2. 将 `SLACS2NG-Textures-1.0.zip` 和 `SLACS2NG-Main-1.0.7.zip` 分别直接拖入 MO2，安装成两个独立模组并同时启用；无需预先解压。启用 `SLACS_2_Plus_SCO.esp`。压缩包根目录直接对应游戏 Data 内容；手动安装时合并到游戏 `Data/`。
+2. 将 `SLACS2NG-Textures-1.0.zip` 和 `SLACS2NG-Main-1.0.8.zip` 分别直接拖入 MO2，安装成两个独立模组并同时启用；无需预先解压。启用 `SLACS_2_Plus_SCO.esp`。压缩包根目录直接对应游戏 Data 内容；手动安装时合并到游戏 `Data/`。
 3. 按[安装说明](package/README.zh-CN.md#racemenu-必须调整的设置)设置 `skee64.ini` 并重启游戏；菜单会显示 RaceMenu 实际容量。
 4. 进游戏按 F1 打开菜单。
 

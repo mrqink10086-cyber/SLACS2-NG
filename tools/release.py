@@ -19,7 +19,7 @@ README = ROOT / "package" / "README.zh-CN.md"
 TEXTURE_README = ROOT / "package" / "TEXTURES.zh-CN.md"
 RELEASE_NOTES = ROOT / "docs" / "release" / "RELEASE-NOTES.zh-CN.md"
 DEFAULT_OUTPUT = ROOT / "artifacts"
-DEFAULT_NAME = "SLACS2NG-Main-1.0.7"
+DEFAULT_NAME = "SLACS2NG-Main-1.0.8"
 TEXTURES_NAME = "SLACS2NG-Textures-1.0"
 
 REQUIRED_FILES = (

@@ -1,6 +1,6 @@
 # SLACS2 NG 交付包说明
 
-发布分为 `SLACS2NG-Main-1.0.7.zip` 程序包与 `SLACS2NG-Textures-1.0.zip` 纹理包。首次安装需要两包；以后通常只更新程序包。
+发布分为 `SLACS2NG-Main-1.0.8.zip` 程序包与 `SLACS2NG-Textures-1.0.zip` 纹理包。首次安装需要两包；以后通常只更新程序包。
 
 ## 运行环境
 
